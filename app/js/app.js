@@ -8,6 +8,7 @@ import { ownsHolo, holoCount, HOLO_KINDS, resetGift, loadRewards, scraps, catalo
 import { sound } from './audio.js';
 import { initTilt, startTilt, lightOn } from './tilt.js';
 import { tried } from './tried.js';
+import { makeBackup, readBackup, restoreBackup, markBackedUp, lastBackup } from './backup.js';
 import { DISCOVERIES, found, foundCount, initDiscoveries, scanBook, DISCOVERY_PAY, hinted, giveHint, toolNote } from './discoveries.js';
 import { Editor, FONTS, fontCss } from './editor.js';
 import { lastLook, originalLook, originalUrl } from './look.js';
@@ -135,12 +136,95 @@ async function showHome() {
     week,
     giftReady() ? parcelCard() : null,
     h('button', { class: 'btn big', onclick: newBook }, '+ New book'),
+    backupNudge(books),
     list,
+    h('div', { class: 'backup-row' },
+      h('button', { class: 'linkish', onclick: openBackup }, 'Back up or restore books'),
+      h('span', { class: 'note tight' }, lastBackup() ? `Last backup ${new Date(lastBackup()).toLocaleDateString()}` : 'Not backed up yet')),
     h('footer', { class: 'home-foot' },
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
       h('span', {}, 'v0.10 · discoveries'))));
+}
+
+// ---------- backup ----------
+// Books live only on this phone. A nudge shows when there are photos that are not in a backup yet.
+function backupNudge(books) {
+  const last = lastBackup();
+  const hasPhotos = books.some(b => b.pages.some(p => p.els.some(e => e.blob)));
+  const changed = books.some(b => (b.updated || 0) > last);
+  if (!hasPhotos || !changed || (last && Date.now() - last < 3 * 864e5)) return null;
+  return h('div', { class: 'backup-nudge' },
+    h('div', {}, h('strong', {}, last ? 'Time for a fresh backup' : 'Your books only live on this phone'),
+      h('span', {}, 'Save one backup file to Files or iCloud Drive, so a lost or new phone never loses them.')),
+    h('button', { class: 'btn small primary', onclick: openBackup }, 'Back up'));
+}
+
+function openBackup() {
+  const status = h('p', { class: 'note tight' });
+  const act = h('div', { class: 'stack' });
+  const picker = h('input', { type: 'file', accept: '.zip,application/zip', style: 'display:none' });
+  const s = sheet('Back up your books', h('div', { class: 'stack' },
+    h('p', {}, 'A backup is one file with every book, its photos, and your Scraps and collection. Keep it in Files or iCloud Drive.'),
+    h('button', { class: 'btn primary', onclick: save }, 'Make a backup'),
+    act, status,
+    h('div', { class: 'label' }, 'Restore'),
+    h('p', { class: 'note tight' }, 'Adds the books from a backup file to this phone. Nothing here is removed or replaced.'),
+    h('button', { class: 'btn', onclick: () => picker.click() }, 'Restore from a backup file'), picker));
+  async function save() {
+    status.textContent = 'Packing up your books...';
+    act.innerHTML = '';
+    let made;
+    try { made = await makeBackup(); } catch (e) { status.textContent = 'Something went wrong making the backup. Try again.'; return; }
+    status.textContent = `Ready: ${made.books} book${made.books === 1 ? '' : 's'}, ${made.photos} photo${made.photos === 1 ? '' : 's'}, ${(made.file.size / 1048576).toFixed(1)} MB.`;
+    // The share sheet has to open from its own tap, so the file is made first and then handed over.
+    act.append(h('button', { class: 'btn primary', onclick: async () => {
+      const how = await deliverFile(made.file);
+      if (how === 'cancel') return;
+      markBackedUp();
+      status.textContent = how === 'saved' ? 'Saved. Keep it somewhere safe.' : 'Done. Choose "Save to Files" if you have not already.';
+      act.innerHTML = '';
+    } }, window.KEEPSAKE_ARTIFACT ? 'Save the file' : 'Save to Files'));
+  }
+  picker.addEventListener('change', async () => {
+    const file = picker.files[0];
+    picker.value = '';
+    if (!file) return;
+    let parsed;
+    try { parsed = await readBackup(file); } catch (e) { status.textContent = e.message && e.message.includes('Keepsake') ? e.message : 'That file could not be read as a Keepsake backup.'; return; }
+    const m = parsed.manifest, n = (m.books || []).length;
+    const photos = [...parsed.files.keys()].filter(k => k.startsWith('photos/')).length;
+    s.close();
+    confirmSheet('Restore this backup?',
+      `From ${new Date(m.made).toLocaleString()}: ${n} book${n === 1 ? '' : 's'} and ${photos} photo${photos === 1 ? '' : 's'}. They are added to this phone. Books already here stay as they are; a book that is already here comes in as a separate copy.`,
+      'Restore', async () => {
+        const r = await restoreBackup(parsed);
+        await loadRewards();
+        await showHome();
+        toastScraps(0, `Restored ${r.added} book${r.added === 1 ? '' : 's'}${r.copies ? `, ${r.copies} as copies` : ''}.`);
+      });
+  });
+}
+
+// Hands a file to the person: in the test copy through Claude's save dialog, in the app
+// through the share sheet (which has "Save to Files"), or as a plain download.
+// Returns 'saved', 'shared', 'downloaded' or 'cancel'.
+async function deliverFile(file) {
+  if (window.KEEPSAKE_ARTIFACT && window.claude && window.claude.use) {
+    const downloads = await window.claude.use('downloads');
+    if (downloads) {
+      try { await downloads.save({ filename: file.name, data: file }); return 'saved'; }
+      catch (e) { return 'cancel'; }
+    }
+  }
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return 'shared'; }
+    catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
+  }
+  const a = h('a', { href: URL.createObjectURL(file), download: file.name });
+  document.body.append(a); a.click(); a.remove();
+  return 'downloaded';
 }
 
 function newBook() {

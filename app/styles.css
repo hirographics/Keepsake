@@ -591,3 +591,9 @@ html.tilting .holo-sheen::after { animation: none; background-position: calc(50%
 .dev-stage.developing .dev-pic { filter: sepia(calc((1 - var(--dev)) * .55)) brightness(calc(1 + (1 - var(--dev)) * .75)) contrast(calc(.3 + var(--dev) * .7)) saturate(calc(.15 + var(--dev) * .85)); }
 .dev-stage.jiggle .dev-pic { animation: jiggle .22s; }
 @keyframes jiggle { 30% { transform: rotate(-1.4deg) translateX(-4px); } 70% { transform: rotate(1.2deg) translateX(3px); } }
+
+/* Backup */
+.backup-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 6px 2px 0; }
+.backup-nudge { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 2px dashed var(--ink); background: #fbf6ea; }
+.backup-nudge > div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--ink-soft); min-width: 0; }
+.backup-nudge strong { font: 700 21px/1.05 'Caveat', cursive; color: var(--ink); }
