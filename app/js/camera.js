@@ -8,7 +8,9 @@ export function canLiveCamera() {
 }
 
 // Resolves { blob, flash } after a shot, null if closed, or { error } if the camera could not start.
-export function openCamera({ prompt }) {
+// `aspect` is the photo window's width / height. The viewfinder has exactly that shape,
+// and the shot keeps exactly what the viewfinder shows, so the photo fills its frame as seen.
+export function openCamera({ prompt, aspect = 3 / 4 }) {
   return new Promise(async resolve => {
     let facing = 'environment', flash = true, stream = null, done = false;
     const video = h('video', { class: 'cam-video', playsinline: '', muted: '', autoplay: '' });
@@ -16,11 +18,13 @@ export function openCamera({ prompt }) {
     const flashBtn = h('button', { class: 'cam-btn', 'aria-label': 'Flash', onclick: () => { flash = !flash; flashBtn.classList.toggle('off', !flash); flashBtn.lastChild.textContent = flash ? 'Flash on' : 'Flash off'; } },
       h('span', { class: 'g' }, '⚡'), h('span', {}, 'Flash on'));
     const blink = h('div', { class: 'cam-blink' });
-    const root = h('div', { class: 'cam' },
-      video,
-      h('div', { class: 'cam-tint' }),
-      h('div', { class: 'cam-corners' }),
-      blink,
+    const root = h('div', { class: 'cam', style: `--ar:${aspect}` },
+      h('div', { class: 'cam-stage' },
+        h('div', { class: 'cam-view' },
+          video,
+          h('div', { class: 'cam-tint' }),
+          h('div', { class: 'cam-corners' }),
+          blink)),
       h('div', { class: 'cam-top' },
         h('button', { class: 'cam-x', 'aria-label': 'Close camera', onclick: () => finish(null) }, '✕'),
         prompt ? h('div', { class: 'cam-prompt' }, prompt) : null),
@@ -52,11 +56,16 @@ export function openCamera({ prompt }) {
     }
     async function shoot() {
       if (!video.videoWidth) return;
+      // Keep the centre of the frame in the viewfinder's shape, the same part the viewfinder shows.
+      const vw = video.videoWidth, vh = video.videoHeight;
+      let sw = vw, sh = vh;
+      if (vw / vh > aspect) sw = Math.round(vh * aspect); else sh = Math.round(vw / aspect);
+      const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
       const c = document.createElement('canvas');
-      c.width = video.videoWidth; c.height = video.videoHeight;
+      c.width = sw; c.height = sh;
       const ctx = c.getContext('2d');
       if (facing === 'user') { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-      ctx.drawImage(video, 0, 0);
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
       blink.classList.remove('go'); void blink.offsetWidth; blink.classList.add('go', flash ? 'white' : 'dark');
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
       setTimeout(() => finish({ blob, flash }), 260);

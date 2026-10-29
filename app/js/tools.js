@@ -306,7 +306,9 @@ export function tapeFlap(editor, ref) {
   let angle = null;
   return {
     // Takes where the tape starts and where the finger is; returns how much is stuck down.
-    update(start, finger, h) {
+    // With a piece length, the stuck part stops at that length and the lifted end shrinks
+    // as you keep pulling, until the whole piece is down.
+    update(start, finger, h, piece = Infinity) {
       const dx = finger.x - start.x, dy = finger.y - start.y;
       const len = Math.hypot(dx, dy) || 1;
       const dir = Math.atan2(dy, dx) * 180 / Math.PI;
@@ -314,8 +316,10 @@ export function tapeFlap(editor, ref) {
       let diff = ((dir - angle + 540) % 360) - 180;
       angle += diff * 0.3; // the flap trails a little behind quick swings
       diff = Math.max(-28, Math.min(28, ((dir - angle + 540) % 360) - 180));
-      const lift = Math.min(len * 0.55, 105);
-      const laid = len - lift;
+      let lift = Math.min(len * 0.55, 105);
+      let laid = len - lift;
+      if (laid > piece) laid = piece;
+      lift = Math.max(0, Math.min(lift, piece - laid));
       const cx = start.x + dx / len * laid, cy = start.y + dy / len * laid;
       node.style.width = lift + 'px';
       node.style.height = h * 1.05 + 'px';

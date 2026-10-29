@@ -58,10 +58,10 @@ function pickFile(capture) {
 
 // Gets a photo from the camera or the library, saves the original, then opens the develop screen.
 // Resolves { blob, look } or null.
-async function getPhoto({ capture, prompt }) {
+async function getPhoto({ capture, prompt, aspect }) {
   let file = null, when = Date.now(), flash = true;
   if (capture && canLiveCamera()) {
-    const shot = await openCamera({ prompt });
+    const shot = await openCamera({ prompt, aspect });
     if (!shot) return null;
     if (shot.error) file = await pickFile(true); // camera would not start: use the iPhone camera instead
     else { file = shot.blob; flash = shot.flash; }
@@ -642,8 +642,11 @@ function editPhoto(el, done) {
     label('Photo prompt'), prompt,
     canLiveCamera() ? null : h('p', { class: 'note' }, 'In this test copy, "Take a photo" opens the iPhone camera and the look is added after. The live viewfinder comes with the installable version.')), { onClose: done });
   async function fill(capture) {
-    const got = await getPhoto({ capture, prompt: el.prompt });
+    const win = document.querySelector(`.el[data-id="${el.id}"] .b > :first-child`);
+    const aspect = win && win.offsetHeight ? win.offsetWidth / win.offsetHeight : 3 / 4;
+    const got = await getPhoto({ capture, prompt: el.prompt, aspect });
     if (!got) return;
+    el.crop = null; // a new photo starts centred, exactly as framed in the viewfinder
     el.blob = got.blob;
     el.look = got.look;
     editor.refresh(el);

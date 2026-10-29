@@ -166,7 +166,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished }) {
       act.append(pad);
     } else if (el.type === 'text') {
       trayPiece(el, tray, false);
-      say.textContent = 'Scratch the foil off to show the words.';
+      say.textContent = 'Scratch inside the outline. The words come up in foil where you scratch.';
       startScratch(el);
       ready = true;
     } else {
@@ -256,64 +256,99 @@ export function assembly(editor, { panel, onExit, onShare, onFinished }) {
   function moveTape(p) {
     const d = tapeDrag;
     const ux = (d.to.x - d.from.x) / d.el.w, uy = (d.to.y - d.from.y) / d.el.w;
-    const along = Math.max(1, Math.min(d.el.w, (p.x - d.from.x) * ux + (p.y - d.from.y) * uy));
+    // You can pull past the end of the outline: the last bit of tape keeps laying down until it is all stuck.
+    const along = Math.max(1, Math.min(d.el.w + 240, (p.x - d.from.x) * ux + (p.y - d.from.y) * uy));
     // The finger may wander a little off the line; the flap follows it, the stuck part stays on the line.
     const side = (p.x - d.from.x) * -uy + (p.y - d.from.y) * ux;
     const off = Math.max(-30, Math.min(30, side));
     const tip = { x: d.from.x + ux * along - uy * off, y: d.from.y + uy * along + ux * off };
-    d.len = along;
-    const laid = d.flap.update(d.from, tip, d.el.h);
+    const laid = d.flap.update(d.from, tip, d.el.h, d.el.w);
+    d.len = laid;
     d.tmp.w = Math.max(1, laid);
     d.tmp.x = d.from.x + ux * d.tmp.w / 2;
     d.tmp.y = d.from.y + uy * d.tmp.w / 2;
     editor.place(d.node, d.tmp);
     d.hiss.speed(dist(d.last, p) * editor.scale);
     d.last = p;
+    if (laid >= d.el.w - 0.5) endTape(); // the whole piece is down
   }
   function endTape() {
     const d = tapeDrag;
     tapeDrag = null;
     d.hiss.stop();
-    if (d.len >= d.el.w * 0.7) {
+    if (d.len >= d.el.w - 0.5) {
+      // Fully laid by your finger: press it flat.
+      d.flap.remove(); d.node.remove(); sound.press(); setTimeout(() => sound.tear(), 60); place(d.el);
+    } else if (d.len >= d.el.w * 0.75) {
+      // Nearly there: the last bit smooths down on its own.
       d.flap.lay(() => { d.node.remove(); sound.press(); setTimeout(() => sound.tear(), 60); place(d.el); });
     } else { d.flap.remove(); d.node.remove(); pulse(); }
   }
 
-  // ---------- writing as a scratch-off ----------
-  // A foil coating covers the words, like a lottery scratcher. Scratching wears it away right
-  // where your finger goes, with flakes falling off. When most of it is gone, the rest flakes off.
+  // ---------- writing: letters made of scratcher foil ----------
+  // Only the letters are foil. Nothing covers the page: scratching inside the outline makes
+  // the letters appear right where your finger goes, with a little glint. When most of each
+  // word is showing, the rest shimmers in and the foil settles into ink.
+  function foilFill(g, W, H) {
+    const gr = g.createLinearGradient(0, 0, W, H * 1.6);
+    gr.addColorStop(0, '#8e949d'); gr.addColorStop(0.3, '#e6e9ee'); gr.addColorStop(0.48, '#a1a7b0');
+    gr.addColorStop(0.7, '#f1f3f6'); gr.addColorStop(1, '#949aa3');
+    return gr;
+  }
   function startScratch(el) {
     const n = nodeOf(el);
     n.classList.remove('unplaced');
-    const k = 2;
-    const W = Math.max(20, Math.ceil(el.w)), H = Math.max(20, Math.ceil(el.h + 10));
-    const c = document.createElement('canvas');
-    c.width = W * k; c.height = H * k;
+    n.style.visibility = 'hidden';
+    const k = 2, pad = 5;
+    const W = Math.max(20, Math.ceil(el.w)), H = Math.max(20, Math.ceil(el.h + pad * 2));
+    const mk = () => { const c = document.createElement('canvas'); c.width = W * k; c.height = H * k; const g = c.getContext('2d'); g.scale(k, k); return [c, g]; };
+    // The foil letters, laid out exactly like the finished text.
+    const [letters, lg] = mk();
+    lg.font = `${el.size}px ${fontCss(el.font)}`;
+    lg.textBaseline = 'middle';
+    const align = el.align || 'center';
+    lg.textAlign = align;
+    const lh = el.size * 1.12, x = align === 'left' ? 0 : align === 'right' ? W : W / 2;
+    const lines = wrap(lg, el.text || '', W);
+    lg.fillStyle = foilFill(lg, W, H);
+    lines.forEach((line, j) => lg.fillText(line, x, pad + j * lh + lh / 2));
+    // Specks of glitter inside the letters, and a thin darker rim so silver reads on light paper.
+    lg.globalCompositeOperation = 'source-atop';
+    for (let j = 0; j < W * H / 40; j++) {
+      lg.fillStyle = Math.random() < 0.6 ? 'rgba(255,255,255,.9)' : 'rgba(90,95,105,.45)';
+      lg.fillRect(Math.random() * W, Math.random() * H, 1.1, 1.1);
+    }
+    lg.globalCompositeOperation = 'source-over';
+    lg.strokeStyle = 'rgba(70,74,82,.55)'; lg.lineWidth = Math.max(0.6, el.size / 60);
+    lines.forEach((line, j) => lg.strokeText(line, x, pad + j * lh + lh / 2));
+    // Where you have scratched so far.
+    const [mask, mg] = mk();
+    mg.lineCap = 'round'; mg.lineJoin = 'round'; mg.strokeStyle = '#000';
+    // What you see: the letters, only where you scratched.
+    const [c, g] = mk();
     c.className = 'foil';
     c.style.width = W + 'px'; c.style.height = H + 'px';
     c.style.left = el.x - W / 2 + 'px'; c.style.top = el.y - H / 2 + 'px';
     c.style.transform = `rotate(${el.rot || 0}deg)`;
-    const g = c.getContext('2d');
-    g.scale(k, k);
-    // Silver foil with a soft sheen and a little sparkle.
-    const gr = g.createLinearGradient(0, 0, W, H);
-    gr.addColorStop(0, '#c9cbd0'); gr.addColorStop(0.35, '#eceef2'); gr.addColorStop(0.55, '#b9bcc3'); gr.addColorStop(1, '#dfe1e6');
-    g.fillStyle = gr;
-    roundRect(g, 0, 0, W, H, 10); g.fill();
-    for (let j = 0; j < W * H / 90; j++) {
-      g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.7)' : 'rgba(120,125,135,.35)';
-      g.fillRect(Math.random() * W, Math.random() * H, 1.2, 1.2);
-    }
-    g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2; roundRect(g, 3, 3, W - 6, H - 6, 8); g.stroke();
-    g.fillStyle = 'rgba(110,115,125,.45)';
-    g.font = `600 ${Math.min(22, H * 0.32)}px -apple-system, sans-serif`;
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('scratch here', W / 2, H / 2);
     editor.fx.append(c);
-    scrib = { el, n, c, g, W, H, k, down: false, last: null, travel: 0, checks: 0, flakes: 0 };
+    // How many letter pixels there are, counted small, to know when most are showing.
+    const sw = 96, sh = Math.max(8, Math.round(96 * H / W));
+    const sm = document.createElement('canvas'); sm.width = sw; sm.height = sh;
+    const st2 = sm.getContext('2d', { willReadFrequently: true });
+    st2.drawImage(letters, 0, 0, sw, sh);
+    const ink = st2.getImageData(0, 0, sw, sh).data;
+    let total = 0;
+    for (let j = 3; j < ink.length; j += 4) if (ink[j] > 60) total++;
+    scrib = { el, n, c, g, letters, mask, mg, W, H, k, sm, st2, ink, total: Math.max(1, total), down: false, last: null, travel: 0, checks: 0, glints: 0 };
   }
-  function roundRect(g, x, y, w, h, r) {
-    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  function drawFoil() {
+    const s = scrib, g = s.g;
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, s.c.width, s.c.height);
+    g.drawImage(s.letters, 0, 0);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(s.mask, 0, 0);
+    g.restore();
   }
   function localPt(q) {
     const s = scrib, el = s.el, t = (el.rot || 0) * Math.PI / 180;
@@ -324,54 +359,53 @@ export function assembly(editor, { panel, onExit, onShare, onFinished }) {
     const s = scrib;
     const a = s.last ? localPt(s.last) : localPt(p), b = localPt(p);
     if (b.x < -30 || b.x > s.W + 30 || b.y < -30 || b.y > s.H + 30) { s.last = p; return; }
-    s.g.save();
-    s.g.globalCompositeOperation = 'destination-out';
-    s.g.lineCap = 'round'; s.g.lineJoin = 'round';
-    s.g.lineWidth = Math.max(22, s.el.size * 0.5);
-    s.g.beginPath(); s.g.moveTo(a.x, a.y); s.g.lineTo(b.x + 0.01, b.y); s.g.stroke();
-    s.g.restore();
+    s.mg.lineWidth = Math.max(20, s.el.size * 0.45);
+    s.mg.beginPath(); s.mg.moveTo(a.x, a.y); s.mg.lineTo(b.x + 0.01, b.y); s.mg.stroke();
+    drawFoil();
     const d = s.last ? dist(s.last, p) : 0;
     s.travel += d;
-    if (s.travel > 22) { sound.scratch(); s.travel = 0; flake(p); }
+    if (s.travel > 22) { sound.scratch(); s.travel = 0; glint(p); }
     s.last = p;
     if (++s.checks % 6 === 0) checkScratch();
   }
-  // A few foil flakes that fall off where you scratch.
-  function flake(p) {
-    if (scrib.flakes > 40) return;
-    for (let j = 0; j < 3; j++) {
-      const f = document.createElement('div');
-      f.className = 'flake';
-      f.style.left = p.x + (Math.random() - 0.5) * 30 + 'px';
-      f.style.top = p.y + (Math.random() - 0.5) * 16 + 'px';
-      editor.fx.append(f);
-      scrib.flakes++;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        f.style.transform = `translate(${(Math.random() - 0.5) * 60}px, ${80 + Math.random() * 90}px) rotate(${Math.random() * 360}deg)`;
-        f.style.opacity = '0';
-      }));
-      setTimeout(() => { f.remove(); if (scrib) scrib.flakes--; }, 800);
-    }
+  // A small twinkle where the foil comes up.
+  function glint(p) {
+    if (scrib.glints > 12) return;
+    const f = document.createElement('div');
+    f.className = 'glint';
+    f.style.left = p.x + (Math.random() - 0.5) * 26 + 'px';
+    f.style.top = p.y + (Math.random() - 0.5) * 18 + 'px';
+    editor.fx.append(f);
+    scrib.glints++;
+    setTimeout(() => { f.remove(); if (scrib) scrib.glints--; }, 520);
   }
   function checkScratch() {
-    const s = scrib, sm = document.createElement('canvas');
-    sm.width = 48; sm.height = Math.max(6, Math.round(48 * s.H / s.W));
-    const t = sm.getContext('2d');
-    t.drawImage(s.c, 0, 0, sm.width, sm.height);
-    const d = t.getImageData(0, 0, sm.width, sm.height).data;
-    let left = 0;
-    for (let j = 3; j < d.length; j += 4) if (d[j] > 90) left++;
-    if (left / (sm.width * sm.height) < 0.3) finishScratch();
+    const s = scrib;
+    s.st2.clearRect(0, 0, s.sm.width, s.sm.height);
+    s.st2.drawImage(s.mask, 0, 0, s.sm.width, s.sm.height);
+    const m = s.st2.getImageData(0, 0, s.sm.width, s.sm.height).data;
+    let shown = 0;
+    for (let j = 3; j < m.length; j += 4) if (s.ink[j] > 60 && m[j] > 60) shown++;
+    if (shown / s.total >= 0.72) finishScratch();
   }
   function finishScratch() {
     const s = scrib, el = s.el;
-    s.c.classList.add('falling');
-    sound.write();
     scrib = null;
-    setTimeout(() => s.c.remove(), 500);
-    place(el);
+    // The rest of the letters shimmer in, then the foil settles into ink.
+    s.c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
+    s.c.getContext('2d').clearRect(0, 0, s.c.width, s.c.height);
+    s.c.getContext('2d').drawImage(s.letters, 0, 0);
+    s.c.classList.add('shimmer');
+    sound.write();
+    setTimeout(() => {
+      s.n.style.visibility = '';
+      s.n.classList.add('inking');
+      s.c.classList.add('settling');
+      setTimeout(() => { s.c.remove(); s.n.classList.remove('inking'); }, 520);
+      place(el);
+    }, 380);
   }
-  function endScratch() { if (scrib) { scrib.c.remove(); scrib = null; } }
+  function endScratch() { if (scrib) { scrib.c.remove(); scrib.n.style.visibility = ''; scrib = null; } }
 
   // ---------- finishing ----------
   function place(el, quiet) {
