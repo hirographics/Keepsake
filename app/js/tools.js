@@ -158,7 +158,7 @@ export const SHAPES = [
 
 // ---------- scissors ----------
 export function cutMode(editor, el, ui) {
-  let edge = 'straight', pts = null, travel = 0, lastSnip = 0, svg, path, scis, outline;
+  let edge = 'straight', pts = null, travel = 0, lastSnip = 0, svg, path, scis, outline, t0 = 0;
   const mode = {
     get edge() { return edge; },
     setEdge(e) { edge = e; },
@@ -179,7 +179,7 @@ export function cutMode(editor, el, ui) {
       editor.nodes.get(el.id)?.classList.add('cutting');
     },
     exit() { editor.nodes.get(el.id)?.classList.remove('cutting'); },
-    down(e, p) { pts = [p]; travel = 0; lastSnip = 0; moveScissors(p, 0); },
+    down(e, p) { pts = [p]; travel = 0; lastSnip = 0; t0 = performance.now(); moveScissors(p, 0); },
     move(e, p) {
       if (!pts) return;
       const last = pts[pts.length - 1];
@@ -187,7 +187,7 @@ export function cutMode(editor, el, ui) {
       if (d < 3) return;
       pts.push(p);
       travel += d;
-      if (travel - lastSnip > 26) { sound.snip(); lastSnip = travel; }
+      if (travel - lastSnip > 26 && performance.now() - t0 > 250) { sound.snip(); lastSnip = travel; }
       path.setAttribute('points', pts.map(q => `${q.x},${q.y}`).join(' '));
       moveScissors(p, Math.atan2(p.y - last.y, p.x - last.x) * 180 / Math.PI);
     },
@@ -195,6 +195,11 @@ export function cutMode(editor, el, ui) {
       const drawn = pts; pts = null;
       path.setAttribute('points', '');
       scis.style.opacity = '0';
+      // One quick, straight swipe across the piece tears it instead of cutting.
+      if (drawn && drawn.length > 1) {
+        const ms = performance.now() - t0, chord = dist(drawn[0], drawn[drawn.length - 1]);
+        if (ms < 420 && chord > 110 && chord / Math.max(travel, 1) > 0.85 && tear(drawn[0], drawn[drawn.length - 1])) return;
+      }
       if (!drawn || drawn.length < 8 || travel < 80) { ui.hint('Draw all the way around the part you want to keep.'); return; }
       let ring = drawn.map(q => pageToSheet(el, q));
       if (Math.abs(polyArea(ring)) < 900) { ui.hint('That piece is too small. Draw a bigger loop.'); return; }
@@ -247,9 +252,56 @@ export function cutMode(editor, el, ui) {
     const corners = el.cut ? el.cut.pts.map(([u, v]) => [u * S.W, v * S.H]) : [[0, 0], [S.W, 0], [S.W, S.H], [0, S.H]];
     outline.setAttribute('points', corners.map(([x, y]) => { const q = localToPage(el, x - S.ox, y - S.oy); return `${q.x},${q.y}`; }).join(' '));
   }
-  function apply(ring) {
-    const shaped = edgeIt(ring, edge);
-    if (edge !== 'straight') tried('edge-' + edge);
+  // Tears along the line from a to b (page points): keeps the bigger side, with a ragged,
+  // fibrous edge where it tore. Returns false if the line misses the piece.
+  function tear(a, b) {
+    const S = sheetOf(el);
+    const ring = el.cut ? el.cut.pts.map(([u, v]) => [u * S.W, v * S.H]) : [[0, 0], [S.W, 0], [S.W, S.H], [0, S.H]];
+    const A = pageToSheet(el, a), B = pageToSheet(el, b);
+    const L = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1, nx = -(B[1] - A[1]) / L, ny = (B[0] - A[0]) / L;
+    const side = q => (q[0] - A[0]) * nx + (q[1] - A[1]) * ny;
+    const half = sgn => {
+      const out = [];
+      for (let i = 0; i < ring.length; i++) {
+        const p = ring[i], q = ring[(i + 1) % ring.length], sp = side(p) * sgn, sq = side(q) * sgn;
+        if (sp >= 0) out.push(p);
+        if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+      }
+      return out;
+    };
+    const pa = half(1), pb = half(-1);
+    const area = r => (r.length > 2 ? Math.abs(polyArea(r)) : 0);
+    const total = area(ring);
+    if (area(pa) < total * 0.06 || area(pb) < total * 0.06) return false;
+    const keep = area(pa) >= area(pb) ? pa : pb;
+    // Find the straight run along the tear line and make it ragged.
+    let out = [], fiber = null;
+    for (let i = 0; i < keep.length; i++) {
+      const p = keep[i], q = keep[(i + 1) % keep.length];
+      out.push(p);
+      if (Math.abs(side(p)) < 0.5 && Math.abs(side(q)) < 0.5 && Math.hypot(q[0] - p[0], q[1] - p[1]) > 10) {
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]), steps = Math.max(4, Math.round(len / 5));
+        const tx = (q[0] - p[0]) / len, ty = (q[1] - p[1]) / len;
+        fiber = [p];
+        let wob = 0;
+        for (let k = 1; k < steps; k++) {
+          wob = wob * 0.55 + (Math.random() - 0.5) * 7 + (Math.random() < 0.12 ? (Math.random() - 0.5) * 12 : 0);
+          const along = len * k / steps;
+          const pt = [p[0] + tx * along - ty * wob, p[1] + ty * along + tx * wob];
+          out.push(pt); fiber.push(pt);
+        }
+        fiber.push(q);
+      }
+    }
+    sound.tear();
+    apply(out, { raw: true });
+    if (fiber && el.cut) { el.cut.fiber = fiber.map(([x, y]) => [x / S.W, y / S.H]); editor.drawFiber(el); }
+    tried('torn');
+    return true;
+  }
+  function apply(ring, { raw = false } = {}) {
+    const shaped = raw ? ring : edgeIt(ring, edge);
+    if (edge !== 'straight' && !raw) tried('edge-' + edge);
     const oldNode = editor.nodes.get(el.id);
     const S = sheetOf(el);
     const oldRing = el.cut ? el.cut.pts : [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -273,7 +325,7 @@ export function cutMode(editor, el, ui) {
     editor.render();
     ghosts.forEach(g => editor.layer.append(g)); // keep the falling scrap on screen through the redraw
     editor.nodes.get(el.id)?.classList.add('cutting');
-    sound.snip();
+    if (!raw) sound.snip();
     drawOutline();
     ui.refresh && ui.refresh();
   }
@@ -346,7 +398,7 @@ export function tapeFlap(editor, ref) {
 
 export function tapeMode(editor, ui) {
   let holo = false;
-  let ref = null, start = null, tmp = null, node = null, roll = null, hiss = null, lastP = null, flap = null, finger = null;
+  let ref = null, start = null, tmp = null, node = null, roll = null, hiss = null, lastP = null, flap = null, finger = null, trail = [];
   return {
     get ref() { return ref; },
     get holo() { return holo; },
@@ -359,7 +411,7 @@ export function tapeMode(editor, ui) {
     exit() { hiss && hiss.stop(); flap && flap.remove(); },
     down(e, p) {
       if (!ref) return;
-      start = p; lastP = p; finger = p;
+      start = p; lastP = p; finger = p; trail = [{ p, t: performance.now() }];
       tmp = { id: uid('e'), type: 'tape', ref, holo, x: p.x, y: p.y, w: 1, h: 56, rot: 0, cut: null };
       node = editor.makeNode(tmp);
       node.classList.add('laying');
@@ -375,6 +427,9 @@ export function tapeMode(editor, ui) {
     move(e, p) {
       if (!start) return;
       finger = p;
+      const now = performance.now();
+      trail.push({ p, t: now });
+      while (trail.length > 2 && now - trail[0].t > 90) trail.shift();
       const len = dist(start, p);
       const ang = Math.atan2(p.y - start.y, p.x - start.x) * 180 / Math.PI;
       const laid = flap.update(start, p, tmp.h);
@@ -398,7 +453,13 @@ export function tapeMode(editor, ui) {
       const el = tmp;
       el.w = len;
       el.x = (s0.x + p.x) / 2; el.y = (s0.y + p.y) / 2;
+      // How you let go decides the end: a quick flick rips it ragged, a slow lift tears it clean.
+      const a = trail[0], b = trail[trail.length - 1];
+      const speed = a && b && b.t > a.t ? dist(a.p, b.p) / (b.t - a.t) : 0; // page units per ms
+      el.end = speed > 0.9 ? 'rag' : 'clean';
+      node.remove(); node = editor.makeNode(el); node.classList.add('laying'); editor.layer.append(node);
       tried('tape-roll');
+      if (el.end === 'rag') { tried('flick-tear'); sound.tear(); }
       flap.lay(() => {
         node.remove();
         editor.change(() => editor.page.els.push(el));
@@ -430,17 +491,18 @@ export function makeStampTool(editor) {
   const rubber = tool.querySelector('.rubber'), print = aim.querySelector('.aim-print');
   return {
     tool, aim,
-    paint(url, ink, level) {
+    paint(url, ink, level, ink2) {
       for (const n of [rubber, print]) n.style.webkitMaskImage = n.style.maskImage = url ? `url(${url})` : '';
-      rubber.style.backgroundColor = level > 0 ? ink : '#9b8f86';
+      rubber.style.background = level > 0 ? inkFill(ink, ink2) : '#9b8f86';
       rubber.style.opacity = level > 0 ? 0.55 + 0.45 * level : 0.7;
-      print.style.backgroundColor = ink;
+      print.style.background = inkFill(ink, ink2);
     },
-    hover(p) {
+    hover(p, twist = 0) {
       tool.style.left = aim.style.left = p.x + 'px';
       tool.style.top = aim.style.top = p.y + 'px';
+      aim.style.transform = twist ? `rotate(${twist}deg)` : '';
       tool.className = 'stamp-tool aiming';
-      aim.className = 'stamp-aim on';
+      aim.className = 'stamp-aim on' + (twist ? ' twisting' : '');
     },
     // Runs the press. `land` is called at the moment of impact.
     press(p, land) {
@@ -458,15 +520,24 @@ export function makeStampTool(editor) {
 }
 
 export function stampMode(editor, ui) {
-  let ref = null, ink = '#b5322c', level = 0, st = null, aiming = null, busy = false;
+  let ref = null, ink = '#b5322c', ink2 = null, level = 0, st = null, aiming = null, busy = false;
+  // Fingers on the page: the first one aims; a second one twists the stamp around it.
+  const fingers = new Map();
+  let firstId = null, twist = 0, twist0 = null;
+  const angleOf = () => { const [a, b] = [...fingers.values()]; return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI; };
   const mode = {
     get ref() { return ref; },
     get ink() { return ink; },
+    get ink2() { return ink2; },
     get level() { return level; },
-    setRef(r, defaultInk) { ref = r; if (defaultInk && level === 0) ink = defaultInk; paint(); },
-    // One dab gives a light print, two give a full one. A new color starts dry.
+    setRef(r, defaultInk) { ref = r; if (defaultInk && level === 0) { ink = defaultInk; ink2 = null; } paint(); },
+    // One dab gives a light print, two give a full one. A dry stamp takes the new color.
+    // A stamp that still has ink on it picks up a second color beside the first.
     dab(color) {
-      if (color && color !== ink) { ink = color; level = 0; }
+      if (color && color !== ink) {
+        if (level > 0) ink2 = color;
+        else { ink = color; ink2 = null; }
+      }
       level = Math.min(1, level + 0.5);
       sound.pat();
       paint();
@@ -474,31 +545,51 @@ export function stampMode(editor, ui) {
     },
     reink(color) { mode.dab(color); },
     enter() { st = makeStampTool(editor); paint(); },
-    exit() { st && st.tool.remove(); st && st.aim.remove(); },
+    exit() { st && st.tool.remove(); st && st.aim.remove(); fingers.clear(); },
     down(e, p) {
-      if (!ref || busy) return;
-      aiming = p;
-      st.hover(p);
+      fingers.set(e.pointerId, p);
+      if (fingers.size === 1) {
+        if (!ref || busy) return;
+        firstId = e.pointerId; twist = 0; twist0 = null;
+        aiming = p;
+        st.hover(p);
+      } else if (fingers.size === 2 && aiming) {
+        twist0 = { ang: angleOf(), base: twist };
+      }
     },
-    move(e, p) { if (aiming) { aiming = p; st.hover(p); } },
-    up() {
+    move(e, p) {
+      if (!fingers.has(e.pointerId)) return;
+      fingers.set(e.pointerId, p);
+      if (!aiming) return;
+      if (fingers.size >= 2 && twist0) {
+        let d = angleOf() - twist0.ang;
+        d = ((d + 540) % 360) - 180;
+        twist = Math.max(-170, Math.min(170, twist0.base + d));
+      } else if (e.pointerId === firstId) aiming = p;
+      st.hover(aiming, twist);
+    },
+    up(e) {
+      if (e) fingers.delete(e.pointerId);
+      if (fingers.size > 0) { twist0 = null; return; } // lift every finger to stamp
       if (!aiming || busy) return;
       const p = aiming; aiming = null;
       busy = true;
-      const inked = level;
+      const inked = level, i1 = ink, i2 = ink2, turn = twist;
+      if (Math.abs(turn) > 12) tried('twist');
+      if (i2 && inked > 0) tried('two-tone');
       st.press(p, () => {
         if (inked <= 0) {
           sound.pat();
           ui.hint('Dry stamp. Dab it on the ink pad first.');
         } else {
           sound.thock();
-          const el = { id: uid('e'), type: 'stamp', ref, ink, x: p.x, y: p.y, w: 170, h: 170, rot: (Math.random() - 0.5) * 8, cut: null, inkLevel: inked, inkSeed: (Math.random() * 1000) | 0 };
+          const el = { id: uid('e'), type: 'stamp', ref, ink: i1, ink2: i2 || undefined, x: p.x, y: p.y, w: 170, h: 170, rot: turn + (Math.random() - 0.5) * 8, cut: null, inkLevel: inked, inkSeed: (Math.random() * 1000) | 0 };
           editor.change(() => editor.page.els.push(el));
           editor.render();
           const n = editor.nodes.get(el.id);
           n && n.classList.add('inking');
         }
-        level = 0; // the ink is used up; dab again for the next print
+        level = 0; ink2 = null; // the ink is used up; dab again for the next print
         paint();
         ui.refresh && ui.refresh();
       });
@@ -508,9 +599,55 @@ export function stampMode(editor, ui) {
   function paint() {
     if (!st) return;
     const a = ref && asset(ref);
-    st.paint(a && a.url, ink, level);
+    st.paint(a && a.url, ink, level, ink2);
   }
   return mode;
+}
+
+// One color, or two side by side with a soft blend where they meet.
+export function inkFill(ink, ink2) {
+  return ink2 ? `linear-gradient(100deg, ${ink} 0 38%, ${ink2} 62% 100%)` : ink;
+}
+
+// ---------- inking a paper edge ----------
+// Rub an ink pad along the edge of a paper or photo and the edge darkens, like distressing ink.
+export function outlineOf(el) {
+  const S = sheetOf(el);
+  const pts = el.cut ? el.cut.pts.map(([u, v]) => [u * S.W, v * S.H]) : [[0, 0], [S.W, 0], [S.W, S.H], [0, S.H]];
+  return pts.map(([x, y]) => localToPage(el, x - S.ox, y - S.oy));
+}
+function segDist(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L));
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+// The ink lands only where you rub: the outline is split into short stretches, each with its own amount.
+export function edgeInkAt(editor, p, color) {
+  const els = editor.page.els;
+  for (let i = els.length - 1; i >= 0; i--) {
+    const el = els[i];
+    if (el.type !== 'paper' && el.type !== 'photo') continue;
+    const o = outlineOf(el);
+    let d = Infinity;
+    for (let k = 0; k < o.length; k++) d = Math.min(d, segDist(p, o[k], o[(k + 1) % o.length]));
+    if (d > 26) continue;
+    const S = sheetOf(el);
+    let ink = el.edgeInk;
+    if (!ink || !ink.pts || ink.c !== color) {
+      const ring = el.cut ? el.cut.pts.map(([u, v]) => [u * S.W, v * S.H]) : [[0, 0], [S.W, 0], [S.W, S.H], [0, S.H]];
+      const pts = resample(ring, 12).map(([x, y]) => [x / S.W, y / S.H]);
+      const old = ink && ink.pts && ink.a;
+      ink = el.edgeInk = { c: color, pts, a: pts.map((_, j) => (old && old.length === pts.length ? old[j] * 0.5 : 0)) };
+    }
+    for (let j = 0; j < ink.pts.length; j++) {
+      const q = localToPage(el, ink.pts[j][0] * S.W - S.ox, ink.pts[j][1] * S.H - S.oy);
+      const dd = Math.hypot(q.x - p.x, q.y - p.y);
+      if (dd < 40) ink.a[j] = Math.min(1, ink.a[j] + 0.09 * (1 - dd / 40));
+    }
+    editor.drawEdgeInk(el);
+    return el;
+  }
+  return null;
 }
 
 // ---------- framing a photo ----------

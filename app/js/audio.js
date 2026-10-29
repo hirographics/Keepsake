@@ -47,6 +47,17 @@ function tone(c, t, { from, to, dur, gain = 0.6, type = 'sine' }) {
 }
 
 export const sound = {
+  tick() { // one click of the film wheel
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    noise(c, t, 0.018, { type: 'bandpass', freq: 3800, q: 6, gain: 0.3 });
+  },
+  clunk() { // the wheel stops: the film is wound
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    noise(c, t, 0.03, { type: 'bandpass', freq: 1800, q: 4, gain: 0.45 });
+    tone(c, t, { from: 420, to: 260, dur: 0.05, gain: 0.25, type: 'triangle' });
+  },
   snip() {
     const c = ac(); if (!c) return;
     const t = c.currentTime;

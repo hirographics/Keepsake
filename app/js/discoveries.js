@@ -1,41 +1,52 @@
 // Discoveries: small one-time rewards for trying a technique, never for how a page looks.
 // Nothing here judges or ranks a page, and nothing is ever taken away.
 // Found ones show what you did; the rest show only a hint, so there is always more to find.
-import { earn, claimed } from './rewards.js';
+import { earn, claimed, hints, addHints, useTool } from './rewards.js';
 import { isPlain } from './look.js';
 import { PAGE_W, PAGE_H } from './templates.js';
 
 export const DISCOVERY_PAY = 15;
 
+// `tool` says where its hint can turn up while you work.
 export const DISCOVERIES = [
-  { id: 'cut-free', name: 'Freehand cut', hint: 'Scissors do not need a shape to follow.', did: 'You cut your own shape out of paper.' },
-  { id: 'cut-shape', name: 'Punched shape', hint: 'There are shapes hiding in the scissors.', did: 'You cut a ready-made shape.' },
-  { id: 'edge-zigzag', name: 'Zigzag edge', hint: 'Some scissors leave a fancy edge.', did: 'You trimmed with zigzag scissors.' },
-  { id: 'edge-scallop', name: 'Scallop edge', hint: 'Soft bumps, like a doily.', did: 'You trimmed with scallop scissors.' },
-  { id: 'edge-wave', name: 'Wave edge', hint: 'An edge that rolls like the sea.', did: 'You trimmed with wave scissors.' },
-  { id: 'edge-deckle', name: 'Deckle edge', hint: 'Rough, like handmade paper.', did: 'You gave a piece a rough deckle edge.' },
-  { id: 'cut-photo', name: 'Cut-up photo', hint: 'Photos can go under the scissors too.', did: 'You cut a photo into a new shape.' },
-  { id: 'collage', name: 'Collage', hint: 'One sheet of paper is rarely enough.', did: 'You layered three papers on one page.' },
-  { id: 'matted', name: 'Matted photo', hint: 'Try a paper behind a photo.', did: 'You put a paper mat behind a photo.' },
-  { id: 'tape-roll', name: 'Off the roll', hint: 'Tape does not have to come from the drawer.', did: 'You pulled tape straight off the roll.' },
-  { id: 'taped-photo', name: 'Taped down', hint: 'Tape a photo down yourself.', did: 'You taped across a photo edge.' },
-  { id: 'photo-bomb', name: 'Photo bomb', hint: 'A sticker can sit right on a photo.', did: 'You stuck a sticker on a photo.' },
-  { id: 'ghost-print', name: 'Ghost print', hint: 'What does a stamp do with just a little ink?', did: 'You made a faded print with one dab.' },
-  { id: 'layered-prints', name: 'Layered prints', hint: 'Stamps can overlap.', did: 'You stamped over another print.' },
-  { id: 'postmarked', name: 'Postmarked', hint: 'Stamps work on photos, too.', did: 'You stamped right on a photo.' },
-  { id: 'bleed', name: 'Off the edge', hint: 'Not everything has to stay on the page.', did: 'You let a piece hang off the page edge.' },
-  { id: 'tilt', name: 'Off kilter', hint: 'Not everything has to be straight.', did: 'You turned a piece well off straight.' },
-  { id: 'mixed-hands', name: 'Mixed hands', hint: 'One handwriting is just the start.', did: 'You wrote in three different hands.' },
-  { id: 'reframe', name: 'Reframed', hint: 'A photo can move inside its frame.', did: 'You moved or zoomed a photo in its frame.' },
-  { id: 'new-leak', name: 'Lucky leak', hint: 'Light leaks are never the same twice.', did: 'You asked for a new light leak.' },
-  { id: 'original-look', name: 'Straight shot', hint: 'Not every photo needs the disposable look.', did: 'You kept a photo just as it was shot.' },
-  { id: 'holo-placed', name: 'Shiny', hint: 'Rare pieces come in parcels.', did: 'You put a holo piece on a page.' },
-  { id: 'layout-swap', name: 'Shuffle', hint: 'A page can change its layout mid-build.', did: 'You switched a page to a new layout.' },
-  { id: 'theme-swap', name: 'Change of scene', hint: 'A book can change its whole theme.', did: 'You gave a book a new theme.' },
-  { id: 'palette', name: 'Picky', hint: 'Your drawers can show just your favorites.', did: 'You made a palette for a book.' },
-  { id: 'by-hand', name: 'All by hand', hint: 'Put a page together without skipping.', did: 'You put a whole page together by hand.' },
-  { id: 'long-story', name: 'Long story', hint: 'Some days need more than a page or two.', did: 'You filled four pages with photos.' },
-  { id: 'shared', name: 'Show and tell', hint: 'Pages are made to be seen.', did: 'You shared a page.' },
+  { id: 'cut-free', tool: 'cut', name: 'Freehand cut', hint: "Scissors don't need to be told what to cut.", did: 'You cut your own shape out of paper.' },
+  { id: 'cut-shape', tool: 'cut', name: 'Punched shape', hint: 'The scissors know a few shapes by heart.', did: 'You cut a ready-made shape.' },
+  { id: 'edge-zigzag', tool: 'cut', name: 'Zigzag edge', hint: 'Some blades bite.', did: 'You trimmed with zigzag scissors.' },
+  { id: 'edge-scallop', tool: 'cut', name: 'Scallop edge', hint: 'Some blades are gentle, like lace.', did: 'You trimmed with scallop scissors.' },
+  { id: 'edge-wave', tool: 'cut', name: 'Wave edge', hint: 'Some blades roll like the sea.', did: 'You trimmed with wave scissors.' },
+  { id: 'edge-deckle', tool: 'cut', name: 'Deckle edge', hint: 'Some blades remember handmade paper.', did: 'You gave a piece a rough deckle edge.' },
+  { id: 'torn', tool: 'cut', name: 'Torn by hand', hint: 'Scissors are slow. Be quick.', did: 'You tore paper with one fast swipe.' },
+  { id: 'cut-photo', tool: 'cut', name: 'Cut-up photo', hint: 'Even a photo can lose an edge or two.', did: 'You cut a photo into a new shape.' },
+  { id: 'collage', tool: 'page', name: 'Collage', hint: 'One sheet is never enough.', did: 'You layered three papers on one page.' },
+  { id: 'matted', tool: 'page', name: 'Matted photo', hint: 'Photos like something to stand on.', did: 'You put a paper mat behind a photo.' },
+  { id: 'tape-roll', tool: 'tape', name: 'Off the roll', hint: 'Not all tape comes out of a drawer.', did: 'You pulled tape straight off the roll.' },
+  { id: 'flick-tear', tool: 'tape', name: 'Flick tear', hint: 'How you let go matters.', did: 'You flicked the roll and tore a ragged end.' },
+  { id: 'washi-cross', tool: 'tape', name: 'See-through', hint: 'Thin tape has nothing to hide.', did: 'You crossed two strips of washi.' },
+  { id: 'taped-photo', tool: 'tape', name: 'Taped down', hint: 'Corners like to be held down.', did: 'You taped across a photo edge.' },
+  { id: 'flap', tool: 'tape', name: 'Secret flap', hint: 'Some photos keep secrets underneath.', did: 'You lifted a photo taped only at the top.' },
+  { id: 'photo-bomb', tool: 'sticker', name: 'Photo bomb', hint: "Stickers don't respect personal space.", did: 'You stuck a sticker on a photo.' },
+  { id: 'curl', tool: 'sticker', name: 'Curled corner', hint: "Stickers don't always want to lie flat.", did: 'You curled up a sticker corner.' },
+  { id: 'ghost-print', tool: 'stamp', name: 'Ghost print', hint: 'Some prints are only half there.', did: 'You made a faded print with one dab.' },
+  { id: 'layered-prints', tool: 'stamp', name: 'Layered prints', hint: "Ink doesn't mind company.", did: 'You stamped over another print.' },
+  { id: 'postmarked', tool: 'stamp', name: 'Postmarked', hint: 'Photos can be sent, too.', did: 'You stamped right on a photo.' },
+  { id: 'two-tone', tool: 'stamp', name: 'Two-tone', hint: 'One pad is never the whole story.', did: 'You inked one stamp with two colors.' },
+  { id: 'twist', tool: 'stamp', name: 'Twist', hint: 'A stamp can dance a little.', did: 'You twisted a stamp with two fingers.' },
+  { id: 'inked-edge', tool: 'stamp', name: 'Inked edge', hint: "Pads aren't only for stamps.", did: 'You rubbed an ink pad along a paper edge.' },
+  { id: 'bleed', tool: 'page', name: 'Off the edge', hint: "The page has edges. Things don't have to.", did: 'You let a piece hang off the page edge.' },
+  { id: 'tilt', tool: 'page', name: 'Off kilter', hint: 'Straight is overrated.', did: 'You turned a piece well off straight.' },
+  { id: 'mixed-hands', tool: 'page', name: 'Mixed hands', hint: 'More than one hand wrote this.', did: 'You wrote in three different hands.' },
+  { id: 'reframe', tool: 'camera', name: 'Reframed', hint: 'A photo can shift in its window.', did: 'You moved or zoomed a photo in its frame.' },
+  { id: 'new-leak', tool: 'camera', name: 'Lucky leak', hint: 'Light finds its own way in.', did: 'You asked for a new light leak.' },
+  { id: 'original-look', tool: 'camera', name: 'Straight shot', hint: "Some moments don't need a look.", did: 'You kept a photo just as it was shot.' },
+  { id: 'double-exposure', tool: 'camera', name: 'Double exposure', hint: 'The film remembers what you forget to do.', did: 'You shot twice on one frame.' },
+  { id: 'shake', tool: 'camera', name: 'Shake it', hint: 'Impatient photos can be hurried along.', did: 'You shook a photo to develop it faster.' },
+  { id: 'holo-placed', tool: 'sticker', name: 'Shiny', hint: 'Something that catches the light.', did: 'You put a holo piece on a page.' },
+  { id: 'layout-swap', tool: 'page', name: 'Shuffle', hint: 'Pages can rearrange themselves.', did: 'You switched a page to a new layout.' },
+  { id: 'theme-swap', tool: 'page', name: 'Change of scene', hint: 'A book can change its clothes.', did: 'You gave a book a new theme.' },
+  { id: 'palette', tool: 'page', name: 'Picky', hint: 'Drawers can be choosy.', did: 'You made a palette for a book.' },
+  { id: 'by-hand', tool: 'page', name: 'All by hand', hint: 'Every piece, by hand.', did: 'You put a whole page together by hand.' },
+  { id: 'long-story', tool: 'page', name: 'Long story', hint: 'Some days need more pages.', did: 'You filled four pages with photos.' },
+  { id: 'shared', tool: 'page', name: 'Show and tell', hint: 'Pages are made to be seen.', did: 'You shared a page.' },
 ];
 const byId = Object.fromEntries(DISCOVERIES.map(d => [d.id, d]));
 export const found = id => claimed('disc:' + id);
@@ -48,6 +59,25 @@ function discover(id) {
 }
 export function initDiscoveries() {
   window.addEventListener('keepsake-tried', e => discover(e.detail));
+  // Everyone starts with a few hints; the rest turn up later.
+  if (!hints().length) addHints(['cut-free', 'tape-roll', 'ghost-print', 'matted']);
+}
+
+// ---------- hints ----------
+export const hinted = id => hints().includes(id);
+// Picks one hidden discovery you have no hint for yet (from one tool if given) and hands over its hint.
+export async function giveHint(tool) {
+  const pool = DISCOVERIES.filter(d => !found(d.id) && !hinted(d.id) && (!tool || d.tool === tool));
+  if (!pool.length) return null;
+  const d = pool[Math.floor(Math.random() * pool.length)];
+  await addHints([d.id]);
+  return d;
+}
+// Picking up a tool now and then turns up a hint: the 2nd time, the 5th, then every 6th.
+export async function toolNote(tool) {
+  const n = await useTool(tool);
+  if (n !== 2 && n !== 5 && !(n > 5 && (n - 5) % 6 === 0)) return null;
+  return giveHint(tool);
 }
 
 // ---------- found by looking at the book itself ----------
@@ -100,6 +130,8 @@ export function scanBook(book) {
       for (const s of stamps) if (mine(s) && z(s) > z(p) && overlap(s, p) > 0.3) hit('postmarked');
     }
     for (const s of stamps) if (s.inkLevel != null && s.inkLevel < 0.75) hit('ghost-print');
+    const tapes = of('tape');
+    for (let i = 0; i < tapes.length; i++) for (let j = i + 1; j < tapes.length; j++) if ((mine(tapes[i]) || mine(tapes[j])) && overlap(tapes[i], tapes[j]) > 0.15) hit('washi-cross');
     for (let i = 0; i < stamps.length; i++) for (let j = i + 1; j < stamps.length; j++) if ((mine(stamps[i]) || mine(stamps[j])) && overlap(stamps[i], stamps[j]) > 0.25) hit('layered-prints');
   }
   fonts.delete(undefined);

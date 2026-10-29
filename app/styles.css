@@ -87,7 +87,9 @@ button:disabled { opacity: .3; }
 .el-stamp { opacity: .88; }
 .el-stamp .ink { width: 100%; height: 100%; -webkit-mask-size: 100% 100%, 130px 130px; mask-size: 100% 100%, 130px 130px;
   -webkit-mask-repeat: no-repeat, repeat; mask-repeat: no-repeat, repeat; -webkit-mask-composite: source-in; mask-composite: intersect; }
-.el-tape { background-repeat: repeat-x; background-size: auto 100%; opacity: .84; }
+.el-tape { background-repeat: repeat-x; background-size: auto 100%; opacity: .92; }
+/* Washi is thin: photos, paper and other tape show through, darker where strips cross. */
+.el.t-tape { mix-blend-mode: multiply; }
 .el-paper { background-color: #f6eedd; box-shadow: 0 2px 4px rgba(0,0,0,.18); }
 .el-text .txt { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.12; }
 .el-photo { background: #fffdf8; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.18); }
@@ -542,3 +544,50 @@ html.tilting .holo-sheen::after { animation: none; background-position: calc(50%
 .disc.found { border: 2px solid var(--ink); background: var(--card, #fffdf8); box-shadow: 2px 2px 0 var(--ink); color: var(--ink); }
 .disc.found strong { color: var(--ink); }
 .disc.found .disc-star { color: #d9a420; }
+.scrap-toast.paper-note { background: #fbf6ea; color: var(--ink); border: 1.5px solid rgba(58,46,42,.25); font: 400 21px/1.15 'Caveat', cursive; max-width: min(88vw, 360px); transform: translate(-50%, -14px) rotate(-1.5deg); }
+.scrap-toast.paper-note.show { transform: translate(-50%, 0) rotate(-1.5deg); }
+.scrap-toast.paper-note .disc-star { color: #b5322c; font-size: 16px; }
+.parcel-note { display: block; margin-top: 4px; font-size: 13px; }
+.parcel-note em { font: 400 19px/1.1 'Caveat', cursive; color: var(--ink); font-style: normal; }
+.disc.hint { border-style: dashed; color: var(--ink); background: #fbf6ea; }
+.disc.hint strong { color: var(--ink); }
+.disc.hint span:last-child { font: 400 18px/1.15 'Caveat', cursive; }
+.disc.hidden { opacity: .6; }
+
+/* Ink rubbed along a paper or photo edge */
+.edge-ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: multiply; overflow: hidden; }
+.pad-floater { position: fixed; z-index: 60; width: 64px; height: 44px; margin: -22px 0 0 -32px; border-radius: 8px; pointer-events: none;
+  background: linear-gradient(#5a4a40, #3b2f29); box-shadow: 0 8px 16px rgba(0,0,0,.3); transform: rotate(-8deg); }
+.pad-floater::after { content: ''; position: absolute; inset: 6px; border-radius: 4px; background: var(--ink); opacity: .9; }
+.stamp-aim.twisting { transition: none; }
+
+/* Torn paper: the white core of the paper shows along the tear */
+.fiber { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; filter: blur(.4px); }
+/* A curled sticker corner: the white back, folded over */
+.curl-flap { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: none;
+  filter: drop-shadow(0 2px 2.5px rgba(0,0,0,.28)); }
+.curl-back { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  background: linear-gradient(var(--fold, 135deg), #e2dccf, #fffdf8 55%, #f3efe6); }
+/* A photo hinged at the top, lifted to show what is under it */
+.el.lifted { z-index: 6; pointer-events: none; }
+.el-photo.flipped { background: #ece5d6 !important; }
+.el-photo.flipped > * { visibility: hidden; }
+.flap-note { position: absolute; transform-origin: 50% 50%; display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 8%; box-sizing: border-box; font-family: 'Caveat', cursive; color: var(--ink); line-height: 1.1; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: repeating-linear-gradient(transparent 0 46px, rgba(70,110,160,.18) 46px 48px), #fffdf6; box-shadow: inset 0 0 0 2px rgba(58,46,42,.08); }
+.flap-note.empty { color: rgba(58,46,42,.45); }
+
+/* Film wheel and frame counter on the camera */
+.cam-stage { position: absolute; }
+.cam-wheel { position: absolute; right: -14px; top: 50%; width: 46px; height: 190px; margin-top: -95px; border-radius: 16px; touch-action: none; z-index: 2;
+  background: repeating-linear-gradient(#2b2522 0 4px, #6a5d55 4px 6px, #3a322e 6px 10px); box-shadow: inset 6px 0 10px rgba(0,0,0,.6), inset -4px 0 6px rgba(255,255,255,.08), -2px 0 8px rgba(0,0,0,.5); }
+.cam-wheel.unwound::before { content: '↓'; position: absolute; left: -26px; top: 50%; margin-top: -12px; color: rgba(255,255,255,.55); font-size: 20px; }
+.cam-wheel.nudge { animation: nudge .35s; }
+@keyframes nudge { 25% { transform: translateX(-6px); } 50% { transform: translateX(2px); } 75% { transform: translateX(-3px); } }
+.cam-count { position: absolute; right: 18px; top: 6px; z-index: 2; min-width: 34px; padding: 2px 6px; border-radius: 6px; text-align: center;
+  background: #1b1715; color: #f3c46a; font: 600 15px/1.3 'Special Elite', monospace; box-shadow: inset 0 0 0 2px #3a322e; }
+.shutter.stiff { transform: scale(.94); box-shadow: 0 0 0 6px rgba(255,255,255,.25); transition: transform .9s, box-shadow .9s; }
+/* Develop: a fresh shot comes up slowly; shaking hurries it */
+.dev-stage.developing .dev-pic { filter: sepia(calc((1 - var(--dev)) * .55)) brightness(calc(1 + (1 - var(--dev)) * .75)) contrast(calc(.3 + var(--dev) * .7)) saturate(calc(.15 + var(--dev) * .85)); }
+.dev-stage.jiggle .dev-pic { animation: jiggle .22s; }
+@keyframes jiggle { 30% { transform: rotate(-1.4deg) translateX(-4px); } 70% { transform: rotate(1.2deg) translateX(3px); } }

@@ -8,11 +8,11 @@ import { ownsHolo, holoCount, HOLO_KINDS, resetGift, loadRewards, scraps, catalo
 import { sound } from './audio.js';
 import { initTilt, startTilt, lightOn } from './tilt.js';
 import { tried } from './tried.js';
-import { DISCOVERIES, found, foundCount, initDiscoveries, scanBook, DISCOVERY_PAY } from './discoveries.js';
+import { DISCOVERIES, found, foundCount, initDiscoveries, scanBook, DISCOVERY_PAY, hinted, giveHint, toolNote } from './discoveries.js';
 import { Editor, FONTS, fontCss } from './editor.js';
 import { lastLook, originalLook, originalUrl } from './look.js';
 import { canLiveCamera, openCamera, openDevelop } from './camera.js';
-import { cutMode, tapeMode, stampMode, pullSheet, reframeMode, EDGES, SHAPES } from './tools.js';
+import { cutMode, tapeMode, stampMode, pullSheet, reframeMode, EDGES, SHAPES, edgeInkAt } from './tools.js';
 
 const app = $('#app');
 const mine = kind => itemsOf(kind).filter(it => owns(it.ref));
@@ -62,6 +62,7 @@ function pickFile(capture) {
 // Resolves { blob, look } or null.
 async function getPhoto({ capture, prompt, aspect }) {
   let file = null, when = Date.now(), flash = true;
+  noteFor('camera');
   if (capture && canLiveCamera()) {
     const shot = await openCamera({ prompt, aspect });
     if (!shot) return null;
@@ -75,7 +76,7 @@ async function getPhoto({ capture, prompt, aspect }) {
   const blob = await importPhoto(file);
   const look = { ...lastLook(when), when };
   if (capture) look.flash = flash;
-  const chosen = await openDevelop({ src: await originalUrl(blob), look });
+  const chosen = await openDevelop({ src: await originalUrl(blob), look, fresh: !!capture });
   if (!chosen) { await db.deleteBlob(blob); return null; }
   return { blob, look: chosen };
 }
@@ -227,6 +228,20 @@ async function openBook(id) {
     onSelect: el => drawTools(el),
     onTapSelected: el => editPiece(el),
   });
+  // Under a lifted photo: a hidden note only people who lift it will see. It never prints.
+  editor.onFlapNote = el => {
+    const ta = h('textarea', { class: 'line-input flap-input', rows: 4, placeholder: 'Something only lifters will see' });
+    ta.value = el.note || '';
+    sheet('Under the photo', h('div', { class: 'stack' }, ta,
+      h('p', { class: 'note tight' }, 'This stays hidden under the photo. Shared pictures and prints never show it.')), {
+      onClose: () => {
+        const v = ta.value.trim();
+        if (v !== (el.note || '')) editor.change(() => { el.note = v || undefined; });
+        if (editor.lifted && editor.lifted.id === el.id) editor.setLift(el, 150, false);
+      },
+    });
+    setTimeout(() => ta.focus(), 250);
+  };
 
   function drawPager() {
     pager.innerHTML = '';
@@ -318,6 +333,7 @@ async function openBook(id) {
 
   function enterMode(kind, el) {
     let mode;
+    noteFor(kind);
     if (kind === 'cut') mode = cutMode(editor, el, ui);
     if (kind === 'frame') mode = reframeMode(editor, el, ui);
     if (kind === 'tape') { mode = tapeMode(editor, ui); const t = (drawer('tapes')[0] || variants('tapes')[0]); mode.setRef(t.it.ref, t.holo); }
@@ -363,7 +379,8 @@ async function openBook(id) {
           h('div', { class: 'mode-row' }, h('span', { class: 'mode-label' }, 'Ink pad'),
             INKS.slice(0, 6).map(c => h('button', {
               class: 'pad' + (mode.ink === c ? ' on' : ''), style: `--ink:${c}`, 'aria-label': 'Ink ' + c,
-              onclick: e => { const b = e.currentTarget; b.classList.remove('dabbed'); void b.offsetWidth; b.classList.add('dabbed'); mode.dab(c); },
+              // Tap to dab the stamp. Or pick the pad up and rub it along a paper edge.
+              onpointerdown: e => padDrag(e, c, () => { const b = e.target.closest('.pad'); b.classList.remove('dabbed'); void b.offsetWidth; b.classList.add('dabbed'); mode.dab(c); }),
             }, h('span', { class: 'pad-level', style: 'height:100%' })))),
           h('div', { class: 'mode-row' }, h('span', { class: 'mode-label' }, 'Stamp'),
             h('span', { class: 'ink-dots' }, [0.5, 1].map(v => h('span', { class: 'ink-dot' + (mode.level >= v ? ' on' : ''), style: `--ink:${mode.ink}` }))),
@@ -375,6 +392,43 @@ async function openBook(id) {
     if (kind === 'frame') { ui.hint('Drag to move the photo. Pinch or slide to zoom.'); return; }
     ui.hint(kind === 'cut' ? 'Draw around the part you want to keep, or tap a shape.' : kind === 'tape' ? 'Drag on the page to pull tape off the roll.' : 'Dab the stamp on a pad, hold to aim, then lift to stamp.');
   }
+  // Picks an ink pad up off the bar. A tap is a dab; a drag carries the pad over the page,
+  // and rubbing it along the edge of a paper or photo inks that edge.
+  function padDrag(e, color, tap) {
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    let floater = null, before = null, rubbed = 0, last = null, inked = false;
+    const mv = ev => {
+      if (!floater && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 12) return;
+      if (!floater) {
+        floater = h('div', { class: 'pad-floater', style: `--ink:${color}` });
+        document.body.append(floater);
+        before = editor.snap();
+        sound.peel();
+      }
+      floater.style.left = ev.clientX + 'px'; floater.style.top = ev.clientY + 'px';
+      const p = editor.pt(ev);
+      const hit = edgeInkAt(editor, p, color);
+      if (hit) {
+        inked = true;
+        if (last) rubbed += Math.hypot(p.x - last.x, p.y - last.y);
+        if (rubbed > 70) { sound.pat(); rubbed = 0; }
+        last = p;
+      } else last = null;
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (!floater) { tap(); return; }
+      floater.remove();
+      if (inked) { editor.commit(before); tried('inked-edge'); }
+    };
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
   // Switches the tool bar between the book's palette and everything you own.
   const allToggle = () => editor.book.palette ? h('button', { class: 'mchip', onclick: () => { drawerAll = !drawerAll; modeBar(); } }, drawerAll ? 'Palette' : 'All') : null;
   const edgeIcon = id => {
@@ -527,7 +581,7 @@ function flushSave(book) {
 // ---------- add sheet ----------
 function openAdd() {
   const tabs = [
-    ['Stickers', () => vgrid('stickers', v => v.holo ? holoWrap(thumbImg(v.it.url), v.it.url) : thumbImg(v.it.url), v => { editor.add({ type: 'sticker', ref: v.it.ref, holo: v.holo, w: 160, h: 160 }); if (v.holo) offerTilt(); })],
+    ['Stickers', () => vgrid('stickers', v => v.holo ? holoWrap(thumbImg(v.it.url), v.it.url) : thumbImg(v.it.url), v => { editor.add({ type: 'sticker', ref: v.it.ref, holo: v.holo, w: 160, h: 160 }); noteFor('sticker'); if (v.holo) offerTilt(); })],
     ['Stamps', () => vgrid('stamps', v => thumbStamp(v.it), v => editor.add({ type: 'stamp', ref: v.it.ref, ink: v.it.ink, w: 170, h: 170 }))],
     ['Tape', () => vgrid('tapes', v => { const t = h('div', { class: 'thumb-tape', style: `background-image:url(${v.it.url})` }); return v.holo ? holoWrap(t) : t; }, v => { editor.add({ type: 'tape', ref: v.it.ref, holo: v.holo, w: 260, h: 60 }); if (v.holo) offerTilt(); }, 'wide')],
     ['Page', () => h('div', {},
@@ -752,6 +806,12 @@ function scrapsChip() {
   return chip;
 }
 
+// Now and then a tool turns up a hint for a hidden discovery, like a note falling out of a drawer.
+async function noteFor(tool) {
+  const d = await toolNote(tool);
+  if (d) toastScraps(0, `A note: “${d.hint}”`);
+}
+
 // Toasts wait their turn, so two at once never cover each other.
 let toastAt = 0;
 function toastScraps(amount, reason) {
@@ -760,13 +820,14 @@ function toastScraps(amount, reason) {
   setTimeout(() => {
     if (amount) sound.coin();
     const disc = /^Discovery: /.test(reason);
-    const t = h('div', { class: 'scrap-toast' + (disc ? ' discovery' : '') },
+    const t = h('div', { class: 'scrap-toast' + (disc ? ' discovery' : '') + (/^A note: /.test(reason) ? ' paper-note' : '') },
       disc ? h('span', { class: 'disc-star' }, '✦') : null,
+      /^A note: /.test(reason) ? h('span', { class: 'disc-star' }, '✉') : null,
       amount ? h('span', { class: 'coin' }) : null, amount ? h('strong', {}, `${amount > 0 ? '+' : ''}${amount}`) : null,
       h('span', {}, disc ? reason.replace(/^Discovery: /, 'Found: ') : reason));
     document.body.append(t);
     requestAnimationFrame(() => t.classList.add('show'));
-    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 1900);
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, /^A note: /.test(reason) ? 3400 : 1900);
   }, wait);
 }
 
@@ -810,10 +871,14 @@ function openShop(focusKind = null, focusId = null) {
       }
       if (!pane.children.length) pane.append(h('p', { class: 'note' }, 'You own everything in the shop. New packs will show up here.'));
     } else if (i === 2) {
-      pane.append(h('p', { class: 'note tight' }, `${foundCount()} of ${DISCOVERIES.length} found. Each one pays ${DISCOVERY_PAY} scraps the first time you try it. They are about trying things, never about how a page looks.`),
-        h('div', { class: 'disc-grid' }, [...DISCOVERIES].sort((a, b) => found(b.id) - found(a.id)).map(d => found(d.id)
+      // Found ones say what you did. Hidden ones show a hint only once you have come across it.
+      const rank = d => (found(d.id) ? 0 : hinted(d.id) ? 1 : 2);
+      pane.append(h('p', { class: 'note tight' }, `${foundCount()} found, the rest still hidden. Each pays ${DISCOVERY_PAY} scraps the first time. Hints turn up in parcels and while you work.`),
+        h('div', { class: 'disc-grid' }, [...DISCOVERIES].sort((a, b) => rank(a) - rank(b)).map(d => found(d.id)
           ? h('div', { class: 'disc found' }, h('span', { class: 'disc-star' }, '✦'), h('strong', {}, d.name), h('span', {}, d.did))
-          : h('div', { class: 'disc' }, h('span', { class: 'disc-star' }, '?'), h('strong', {}, 'Not found yet'), h('span', {}, d.hint)))));
+          : hinted(d.id)
+            ? h('div', { class: 'disc hint' }, h('span', { class: 'disc-star' }, '?'), h('strong', {}, 'A hint'), h('span', {}, `“${d.hint}”`))
+            : h('div', { class: 'disc hidden' }, h('span', { class: 'disc-star' }, '·'), h('strong', {}, '???'), h('span', {}, 'Still hidden')))));
     } else {
       const owned = all.filter(c => owns(c.id)).length;
       pane.append(h('p', { class: 'note tight' }, `${owned} of ${all.length} collected · ${holoCount()} holo found.`));
@@ -884,6 +949,8 @@ function parcelCard() {
     prize.classList.add('show');
     setTimeout(() => sound.done(), 250);
     text.innerHTML = '';
+    const note = await giveHint();
+    if (note) setTimeout(() => text.append(h('span', { class: 'parcel-note' }, '✉ A note was tucked inside: ', h('em', {}, `“${note.hint}”`))), 900);
     text.append(h('strong', {}, gift.kind === 'scraps' ? `${gift.name}!` : gift.holo ? `A holo ${gift.name.replace(' (holo)', '')}!` : `${gift.name} is yours`),
       h('span', {}, gift.kind === 'scraps' ? 'You already own everything, so here are scraps.' : gift.holo ? 'A rare shiny one. It is in your drawers now.' : 'It is in your drawers now. See you tomorrow for another.'));
   }

@@ -5,6 +5,8 @@ import { asset } from './packs.js';
 import { uid } from './db.js';
 import { photoUrl } from './look.js';
 import { PAGE_W, PAGE_H } from './templates.js';
+import { sound } from './audio.js';
+import { tried } from './tried.js';
 
 export const FONTS = [
   { id: 'caveat', name: 'Caveat', css: "'Caveat', cursive" },
@@ -27,19 +29,83 @@ function seeded(str) {
   return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296;
 }
 // Torn tape ends as points in percent of the strip (shared with the print renderer).
-export function tornPoints(id) {
+// The far end depends on how the tape was let go: 'clean' is a neat tear, 'rag' a ripped,
+// uneven one from a quick flick. Older tape keeps the small torn ends it always had.
+export function tornPoints(el) {
+  const id = typeof el === 'string' ? el : el.id;
+  const end = typeof el === 'string' ? null : el.end;
+  const w = (typeof el === 'string' ? 0 : el.w) || 200;
   const r = seeded(id);
   const n = 7;
   const left = [], right = [];
-  for (let i = 0; i <= n; i++) {
-    const y = (i / n) * 100;
-    left.push([r() * 2.2, y]);
-    right.push([100 - r() * 2.2, 100 - y]);
+  for (let i = 0; i <= n; i++) left.push([r() * 2.2, (i / n) * 100]);
+  if (end === 'clean') {
+    right.push([100 - 0.4, 100], [100, 0]);
+  } else if (end === 'rag') {
+    // About 16 units of ragged bite, with a few deeper notches.
+    const m = 13, depth = Math.min(30, 1600 / w);
+    for (let i = 0; i <= m; i++) {
+      const deep = r() < 0.25 ? 1 : 0.45;
+      right.push([100 - r() * depth * deep, 100 - (i / m) * 100]);
+    }
+  } else {
+    for (let i = 0; i <= n; i++) right.push([100 - r() * 2.2, 100 - (i / n) * 100]);
   }
   return [...left, ...right];
 }
-function tornClip(id) {
-  return `polygon(${tornPoints(id).map(([x, y]) => `${x.toFixed(2)}% ${y.toFixed(1)}%`).join(',')})`;
+function tornClip(el) {
+  return `polygon(${tornPoints(el).map(([x, y]) => `${x.toFixed(2)}% ${y.toFixed(1)}%`).join(',')})`;
+}
+
+// The fold for a curled sticker corner, in the piece's own units (0..w, 0..h).
+// The corner is the corner of the art itself (`box`, fractions of the piece), not of its
+// see-through margin, so the fold always bites into the sticker.
+// keep: the piece minus the folded part. tri: the folded part. m: the CSS matrix that mirrors
+// it over the fold line, so it lies on top showing the sticker's back.
+function halfPlane(poly, A, B, sgn) {
+  const nx = -(B[1] - A[1]), ny = B[0] - A[0];
+  const side = q => ((q[0] - A[0]) * nx + (q[1] - A[1]) * ny) * sgn;
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length], sp = side(p), sq = side(q);
+    if (sp >= 0) out.push(p);
+    if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+  }
+  return out;
+}
+export function curlGeometry(el) {
+  const { w, h } = el, d = el.curl.d, c = el.curl.c, bx = el.curl.box || [0, 0, 1, 1];
+  const X0 = bx[0] * w, Y0 = bx[1] * h, X1 = bx[2] * w, Y1 = bx[3] * h;
+  let A, B, C;
+  if (c === 'tl') { C = [X0, Y0]; A = [X0 + d, Y0]; B = [X0, Y0 + d]; }
+  if (c === 'tr') { C = [X1, Y0]; A = [X1 - d, Y0]; B = [X1, Y0 + d]; }
+  if (c === 'bl') { C = [X0, Y1]; A = [X0, Y1 - d]; B = [X0 + d, Y1]; }
+  if (c === 'br') { C = [X1, Y1]; A = [X1, Y1 - d]; B = [X1 - d, Y1]; }
+  const rect = [[0, 0], [w, 0], [w, h], [0, h]];
+  const nx = -(B[1] - A[1]), ny = B[0] - A[0];
+  const cs = Math.sign((C[0] - A[0]) * nx + (C[1] - A[1]) * ny) || 1;
+  const tri = halfPlane(rect, A, B, cs), keep = halfPlane(rect, A, B, -cs);
+  const L = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1, ux = (B[0] - A[0]) / L, uy = (B[1] - A[1]) / L;
+  const r11 = 2 * ux * ux - 1, r12 = 2 * ux * uy, r22 = 2 * uy * uy - 1;
+  const tx = A[0] - (r11 * A[0] + r12 * A[1]), ty = A[1] - (r12 * A[0] + r22 * A[1]);
+  const shadeAngle = Math.atan2((X0 + X1) / 2 - C[0], -((Y0 + Y1) / 2 - C[1])) * 180 / Math.PI;
+  return { keep, tri, C, m: [r11, r12, r12, r22, tx, ty], shadeAngle };
+}
+
+// Where the art actually is inside a sticker image, as fractions: [x0, y0, x1, y1].
+const boxes = new Map();
+export function artBox(img) {
+  if (!img || !img.naturalWidth) return [0, 0, 1, 1];
+  if (boxes.has(img.src)) return boxes.get(img.src);
+  const N = 64, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, N, N);
+  const d = g.getImageData(0, 0, N, N).data;
+  let x0 = N, y0 = N, x1 = 0, y1 = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (d[(y * N + x) * 4 + 3] > 40) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
+  const box = x1 > x0 ? [x0 / N, y0 / N, x1 / N, y1 / N] : [0, 0, 1, 1];
+  boxes.set(img.src, box);
+  return box;
 }
 
 const CAMERA_ICON = '<svg viewBox="0 0 24 24" width="22%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
@@ -126,6 +192,7 @@ export class Editor {
     this.pageNode.style.backgroundSize = paper ? `${paper.tile || 300}px` : '';
     this.layer.innerHTML = '';
     this.nodes.clear();
+    this.lifted = null; // a redraw lets any lifted photo fall back
     for (const el of pg.els) {
       const n = this.makeNode(el);
       if (el.id === this.sel) n.classList.add('selected');
@@ -173,7 +240,7 @@ export class Editor {
       b.append(ink);
     } else if (el.type === 'tape') {
       b.style.backgroundImage = a ? `url(${a.url})` : '';
-      b.style.clipPath = b.style.webkitClipPath = tornClip(el.id);
+      b.style.clipPath = b.style.webkitClipPath = tornClip(el);
       if (el.holo) { const sh = document.createElement('div'); sh.className = 'holo-sheen'; b.append(sh); }
     } else if (el.type === 'paper') {
       b.style.backgroundImage = a ? `url(${a.url})` : '';
@@ -189,7 +256,132 @@ export class Editor {
       this.fillPhoto(win, el);
     }
     this.applyCut(n, el);
+    if (el.type === 'sticker' && el.curl && !el.cut) this.applyCurl(n, el);
     return n;
+  }
+
+  // ---------- a curled sticker corner ----------
+  // The corner is folded back along a line across it. The sticker loses that triangle, and the
+  // triangle shows again, mirrored over the fold, as the white back of the sticker.
+  applyCurl(n, el) {
+    const b = n.firstChild;
+    let flap = n.querySelector(':scope > .curl-flap');
+    if (!el.curl || el.cut || el.curl.d < 2) {
+      flap && flap.remove();
+      if (!el.cut) b.style.clipPath = b.style.webkitClipPath = '';
+      return;
+    }
+    const g = curlGeometry(el);
+    const pc = q => q.map(([x, y]) => `${(x / el.w * 100).toFixed(2)}% ${(y / el.h * 100).toFixed(2)}%`).join(',');
+    b.style.clipPath = b.style.webkitClipPath = `polygon(${pc(g.keep)})`;
+    if (!flap) {
+      flap = document.createElement('div');
+      flap.className = 'curl-flap';
+      const back = document.createElement('div');
+      back.className = 'curl-back';
+      const a = asset(el.ref);
+      back.style.webkitMaskImage = back.style.maskImage = a ? `url(${a.url})` : '';
+      flap.append(back);
+      n.append(flap);
+    }
+    flap.style.transform = `matrix(${g.m.map(v => v.toFixed(4)).join(',')})`;
+    const back = flap.firstChild;
+    back.style.clipPath = back.style.webkitClipPath = `polygon(${pc(g.tri)})`;
+    back.style.setProperty('--fold', `${g.shadeAngle}deg`);
+  }
+
+  // ---------- torn paper and inked edges, drawn over the body ----------
+  drawFiber(el) {
+    const n = this.nodes.get(el.id);
+    if (!n) return;
+    const b = n.firstChild;
+    let svg = b.querySelector(':scope > .fiber');
+    const f = el.cut && el.cut.fiber;
+    if (!f) { svg && svg.remove(); return; }
+    const W = el.cut.sheet.sw * el.w, H = el.cut.sheet.sh * el.h;
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'fiber');
+      svg.innerHTML = '<polyline fill="none" stroke="#fffdf6" stroke-linejoin="round" stroke-width="9" stroke-opacity=".55"/><polyline fill="none" stroke="#fffefa" stroke-linejoin="round" stroke-width="4.5"/>';
+      b.append(svg);
+    }
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const pts = f.map(([u, v]) => `${(u * W).toFixed(1)},${(v * H).toFixed(1)}`).join(' ');
+    for (const p of svg.children) p.setAttribute('points', pts);
+  }
+
+  // ---------- hinged photos ----------
+  // A photo held only by tape along its top edge can be lifted like a flap.
+  isHinged(el) {
+    if (el.type !== 'photo') return false;
+    const t = (el.rot || 0) * Math.PI / 180;
+    const tapes = this.page.els.filter(e => e.type === 'tape' && e !== el && Math.hypot(e.x - el.x, e.y - el.y) < (el.w + el.h + e.w) / 2);
+    let any = false;
+    for (const tp of tapes) {
+      const dx = tp.x - el.x, dy = tp.y - el.y;
+      const lx = dx * Math.cos(t) + dy * Math.sin(t), ly = -dx * Math.sin(t) + dy * Math.cos(t);
+      const reach = tp.w / 2 + tp.h / 2;
+      const touches = Math.abs(lx) < el.w / 2 + reach && Math.abs(ly) < el.h / 2 + tp.h;
+      if (!touches) continue;
+      if (ly > -el.h / 2 + el.h * 0.22) return false; // tape lower down: it is stuck, not hinged
+      any = true;
+    }
+    return any;
+  }
+  setLift(el, a, animate) {
+    const n = this.nodes.get(el.id);
+    if (!n) return;
+    const b = n.firstChild;
+    b.style.transition = animate ? 'transform .35s cubic-bezier(.3,.8,.3,1)' : 'none';
+    b.style.transformOrigin = '50% 0';
+    b.style.transform = a ? `perspective(1600px) rotateX(${a}deg)` : '';
+    b.classList.toggle('flipped', a > 90);
+    n.classList.toggle('lifted', a > 0);
+    let note = this.layer.querySelector(`.flap-note[data-for="${el.id}"]`);
+    if (a > 0 && !note) {
+      note = document.createElement('div');
+      note.className = 'flap-note';
+      note.dataset.for = el.id;
+      this.layer.insertBefore(note, n);
+    }
+    if (note) {
+      note.style.left = el.x - el.w / 2 + 'px'; note.style.top = el.y - el.h / 2 + 'px';
+      note.style.width = el.w + 'px'; note.style.height = el.h + 'px';
+      note.style.transform = `rotate(${el.rot || 0}deg)`;
+      note.textContent = el.note || 'Tap to write something only lifters will see.';
+      note.classList.toggle('empty', !el.note);
+      note.style.fontSize = Math.max(26, Math.min(el.w, el.h) * 0.09) + 'px';
+      if (!a) setTimeout(() => { if (!this.lifted || this.lifted.id !== el.id) note.remove(); }, animate ? 360 : 0);
+    }
+    this.lifted = a > 0 ? { id: el.id, a } : null;
+    this.placeSel();
+  }
+
+  // Ink rubbed along a paper or photo edge: soft strokes along the outline, clipped to the piece.
+  drawEdgeInk(el) {
+    const n = this.nodes.get(el.id);
+    if (!n) return;
+    const b = n.firstChild;
+    let svg = b.querySelector(':scope > .edge-ink');
+    if (!el.edgeInk) { svg && svg.remove(); return; }
+    const W = el.cut ? el.cut.sheet.sw * el.w : el.w, H = el.cut ? el.cut.sheet.sh * el.h : el.h;
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'edge-ink');
+      b.append(svg);
+    }
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    // Each short stretch of edge gets its own strength, so the ink sits only where it was rubbed.
+    const { pts, a, c } = el.edgeInk;
+    if (!pts) { svg.remove(); return; }
+    let out = '';
+    for (let j = 0; j < pts.length; j++) {
+      const k = (j + 1) % pts.length, o = (a[j] + a[k]) / 2;
+      if (o < 0.02) continue;
+      const [x1, y1, x2, y2] = [pts[j][0] * W, pts[j][1] * H, pts[k][0] * W, pts[k][1] * H].map(v => v.toFixed(1));
+      for (const [w, op] of [[30, 0.16], [18, 0.24], [8, 0.36]]) out += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-opacity="${(op * o).toFixed(3)}"/>`;
+    }
+    svg.innerHTML = out;
   }
 
   fillInk(ink, el, a) {
@@ -199,14 +391,14 @@ export class Editor {
       ink.style.webkitMaskImage = ink.style.maskImage = `url(${a.url}), url(img/ink-noise.png)`;
       ink.style.webkitMaskPosition = ink.style.maskPosition = `0 0, ${(s * 37) % 100}% ${(s * 61) % 100}%`;
     }
-    ink.style.backgroundColor = el.ink || '#b5322c';
+    ink.style.background = el.ink2 ? `linear-gradient(100deg, ${el.ink} 0 38%, ${el.ink2} 62% 100%)` : (el.ink || '#b5322c');
     ink.style.opacity = el.inkLevel == null ? 1 : 0.62 + 0.38 * el.inkLevel;
   }
 
   applyCut(n, el) {
     const b = n.firstChild;
     n.classList.toggle('is-cut', !!el.cut);
-    if (!el.cut) { b.style.clipPath = b.style.webkitClipPath = el.type === 'tape' ? tornClip(el.id) : ''; return; }
+    if (!el.cut) { b.style.clipPath = b.style.webkitClipPath = el.type === 'tape' ? tornClip(el) : ''; return; }
     const pts = el.cut.pts.map(([u, v]) => `${(u * 100).toFixed(2)}% ${(v * 100).toFixed(2)}%`).join(',');
     b.style.clipPath = b.style.webkitClipPath = `polygon(${pts})`;
   }
@@ -263,12 +455,15 @@ export class Editor {
       b.style.setProperty('--w', el.w + 'px');
     }
     if (el.type === 'photo' && el.blob) fitPhoto(b.firstChild, el);
+    if (el.edgeInk) this.drawEdgeInk(el);
+    if (el.cut && el.cut.fiber) this.drawFiber(el);
+    if (el.type === 'sticker' && el.curl) this.applyCurl(n, el);
   }
 
   placeSel() {
     const el = this.selEl;
     const s = this.selNode;
-    if (!el || !this.scale || this.mode) { s.style.display = 'none'; return; }
+    if (!el || !this.scale || this.mode || this.lifted) { s.style.display = 'none'; return; }
     s.style.display = 'block';
     const pad = 8 / this.scale;
     s.style.left = el.x - el.w / 2 - pad + 'px';
@@ -342,6 +537,12 @@ export class Editor {
   down(e) {
     this.stage.setPointerCapture(e.pointerId);
     if (this.mode) { this.mode.down && this.mode.down(e, this.pt(e)); return; }
+    // A lifted photo: tap the note under it to write, tap anywhere else to let it fall back.
+    if (this.lifted && this.pointers.size === 0) {
+      const le = this.page.els.find(x => x.id === this.lifted.id);
+      if (le && e.target.closest('.flap-note')) { this.onFlapNote && this.onFlapNote(le); return; }
+      if (le) { this.setLift(le, 0, true); sound.pat(); return; }
+    }
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     if (this.pointers.size === 1) {
       const handle = e.target.closest('[data-h]');
@@ -358,7 +559,18 @@ export class Editor {
         const wasSelected = this.sel === id;
         this.select(id);
         const el = this.selEl;
-        this.gesture = { mode: 'drag', el, start: this.pt(e), orig: { ...el }, wasSelected, moved: false, before: this.snap() };
+        const g = this.gesture = { mode: 'drag', el, start: this.pt(e), orig: { ...el }, wasSelected, moved: false, before: this.snap() };
+        // Hold still for a moment on a sticker corner, or the bottom edge of a hinged photo,
+        // and you get hold of the paper itself instead of moving the piece.
+        const hold = this.holdTarget(el, g.start);
+        if (hold) g.holdTimer = setTimeout(() => {
+          if (this.gesture !== g || g.moved) return;
+          g.mode = hold.type; g.hold = hold; g.moved = false;
+          this.selNode.style.display = 'none';
+          if (navigator.vibrate) navigator.vibrate(8);
+          sound.peel();
+          if (hold.type === 'curl') g.d0 = (el.curl && el.curl.c === hold.corner) ? el.curl.d : 0;
+        }, 380);
       } else {
         this.select(null);
         this.gesture = null;
@@ -377,6 +589,28 @@ export class Editor {
     }
   }
 
+  // Where a hold can grab: a sticker's corner, or the bottom of a photo that is hinged at the top.
+  holdTarget(el, p) {
+    const t = (el.rot || 0) * Math.PI / 180, dx = p.x - el.x, dy = p.y - el.y;
+    const lx = dx * Math.cos(t) + dy * Math.sin(t), ly = -dx * Math.sin(t) + dy * Math.cos(t);
+    if (el.type === 'sticker' && !el.cut) {
+      const img = this.nodes.get(el.id)?.querySelector('img');
+      const box = artBox(img);
+      const X0 = (box[0] - 0.5) * el.w, X1 = (box[2] - 0.5) * el.w, Y0 = (box[1] - 0.5) * el.h, Y1 = (box[3] - 0.5) * el.h;
+      const r = Math.min(X1 - X0, Y1 - Y0) * 0.32;
+      for (const c of ['tl', 'tr', 'bl', 'br']) {
+        const cx = c[1] === 'l' ? X0 : X1, cy = c[0] === 't' ? Y0 : Y1;
+        if (Math.abs(lx - cx) < r && Math.abs(ly - cy) < r) return { type: 'curl', corner: c, box };
+      }
+    }
+    if (el.type === 'photo' && ly > el.h / 2 - el.h * 0.24 && this.isHinged(el)) return { type: 'lift', ly0: ly };
+    return null;
+  }
+  localOf(el, p) {
+    const t = (el.rot || 0) * Math.PI / 180, dx = p.x - el.x, dy = p.y - el.y;
+    return { x: dx * Math.cos(t) + dy * Math.sin(t), y: -dx * Math.sin(t) + dy * Math.cos(t) };
+  }
+
   clientToPage(c) {
     const r = this.pageNode.getBoundingClientRect();
     return { x: (c.x - r.left) / this.scale, y: (c.y - r.top) / this.scale };
@@ -390,8 +624,26 @@ export class Editor {
     const g = this.gesture;
     if (!g) return;
     const el = g.el;
+    if (g.mode === 'curl') {
+      // Drag the corner in toward the middle: it folds back, further the further you go.
+      const lp = this.localOf(el, this.pt(e)), c = g.hold.corner, bx = g.hold.box;
+      const sx = c[1] === 'l' ? -1 : 1, sy = c[0] === 't' ? -1 : 1;
+      const cx = ((c[1] === 'l' ? bx[0] : bx[2]) - 0.5) * el.w, cy = ((c[0] === 't' ? bx[1] : bx[3]) - 0.5) * el.h;
+      const proj = ((cx - lp.x) * sx + (cy - lp.y) * sy) / Math.SQRT2;
+      const d = Math.max(0, Math.min(Math.min(el.w * (bx[2] - bx[0]), el.h * (bx[3] - bx[1])) * 0.6, g.d0 + proj / Math.SQRT2 - (g.p0 ?? (g.p0 = proj / Math.SQRT2))));
+      el.curl = { c, d, box: g.hold.box };
+      g.moved = true;
+      this.applyCurl(this.nodes.get(el.id), el);
+      return;
+    }
+    if (g.mode === 'lift') {
+      const lp = this.localOf(el, this.pt(e));
+      const up = g.hold.ly0 - lp.y;
+      this.setLift(el, Math.max(0, Math.min(165, up / el.h * 200)), false);
+      return;
+    }
     if (g.mode === 'drag') {
-      if (Math.hypot(e.clientX - p0.sx, e.clientY - p0.sy) > 6) g.moved = true;
+      if (Math.hypot(e.clientX - p0.sx, e.clientY - p0.sy) > 6) { g.moved = true; clearTimeout(g.holdTimer); }
       if (!g.moved) return;
       const p = this.pt(e);
       el.x = g.orig.x + (p.x - g.start.x);
@@ -447,6 +699,21 @@ export class Editor {
     }
     if (this.pointers.size > 0) return;
     this.gesture = null;
+    clearTimeout(g.holdTimer);
+    if (g.mode === 'lift') {
+      const a = this.lifted ? this.lifted.a : 0;
+      if (a > 60) { this.setLift(g.el, 150, true); tried('flap'); sound.peel(); }
+      else { this.setLift(g.el, 0, true); sound.pat(); }
+      this.placeSel();
+      return;
+    }
+    if (g.mode === 'curl') {
+      if (!g.el.curl || g.el.curl.d < 6) { delete g.el.curl; this.applyCurl(this.nodes.get(g.el.id), g.el); }
+      else { tried('curl'); sound.press(); }
+      g.el.mine = true;
+      this.commit(g.before);
+      return;
+    }
     if (g.moved) {
       if (g.el) g.el.mine = true; // you moved it yourself, so it counts as your own touch
       this.commit(g.before);

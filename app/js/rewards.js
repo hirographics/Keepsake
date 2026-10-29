@@ -29,6 +29,8 @@ export async function loadRewards() {
   try { s = await db.getMeta('rewards'); } catch (e) { /* storage blocked: start fresh in memory */ }
   state = s || { scraps: 0, owned: [], claimed: {}, days: [], lastGift: '' };
   state.holo = state.holo || [];
+  state.hints = state.hints || null; // null until the first hints are handed out
+  state.uses = state.uses || {};
   return state;
 }
 async function save() { try { await db.putMeta('rewards', state); } catch (e) { /* ignore */ } emit(); }
@@ -43,6 +45,20 @@ export function catalog() {
   for (const s of SHAPES) list.push({ id: 'shape/' + s.id, kind: 'shapes', name: s.name, price: PRICE.shapes, item: s });
   for (const e of EDGES) list.push({ id: 'edge/' + e.id, kind: 'edges', name: e.name + ' edge', price: PRICE.edges, item: e });
   return list;
+}
+// Hints for hidden discoveries, found in parcels and while you work.
+export const hints = () => (state && state.hints) || [];
+export async function addHints(ids) {
+  if (!state) return;
+  state.hints = [...new Set([...(state.hints || []), ...ids])];
+  await save();
+}
+// Counts how often you pick up each tool, so hints can turn up now and then.
+export async function useTool(kind) {
+  if (!state) return 0;
+  state.uses[kind] = (state.uses[kind] || 0) + 1;
+  await save();
+  return state.uses[kind];
 }
 export const claimed = key => !!state && !!state.claimed[key];
 export const owns = id => STARTER.has(id) || (state && state.owned.includes(id));

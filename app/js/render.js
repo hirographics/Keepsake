@@ -2,7 +2,7 @@
 // Units are page units (850 x 1100 = 8.5 x 11 in); `s` is pixels per unit (3 = 300 dpi).
 import { asset } from './packs.js';
 import { photoUrl } from './look.js';
-import { fontCss, tornPoints, photoBox } from './editor.js';
+import { fontCss, tornPoints, photoBox, curlGeometry } from './editor.js';
 import { PAGE_W, PAGE_H } from './templates.js';
 
 const imgCache = new Map();
@@ -64,6 +64,8 @@ async function drawEl(ctx, el, s) {
     b.closePath();
     b.clip();
   }
+  const curl = el.type === 'sticker' && !cut && el.curl && el.curl.d >= 2 ? curlGeometry(el) : null;
+  if (curl) { b.beginPath(); curl.keep.forEach(([x, y], i) => (i ? b.lineTo(x, y) : b.moveTo(x, y))); b.closePath(); b.clip(); }
   const shadow = await drawBody(b, el, sheet.W, h, s);
   ctx.save();
   ctx.translate(el.x, el.y);
@@ -73,7 +75,7 @@ async function drawEl(ctx, el, s) {
     ctx.globalCompositeOperation = 'multiply';
     ctx.globalAlpha = 0.88 * (el.inkLevel == null ? 1 : 0.62 + 0.38 * el.inkLevel);
   }
-  if (el.type === 'tape') ctx.globalAlpha = 0.84;
+  if (el.type === 'tape') { ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.92; } // washi is thin: what is under it shows through
   const sh = cut ? { blur: 8, y: 4, a: 0.22 } : shadow;
   if (sh) {
     ctx.shadowColor = `rgba(0,0,0,${sh.a})`;
@@ -81,7 +83,59 @@ async function drawEl(ctx, el, s) {
     ctx.shadowOffsetY = sh.y * s;
   }
   ctx.drawImage(body, 0, 0, sheet.W, h);
+  if (curl) await drawCurl(ctx, el, curl, s);
   ctx.restore();
+}
+
+// The folded-back corner of a sticker: the sticker's white back, mirrored over the fold.
+async function drawCurl(ctx, el, g, s) {
+  const a = asset(el.ref), img = a && await loadImage(a.url);
+  if (!img) return;
+  const back = canvas(el.w * s, el.h * s), k = back.getContext('2d');
+  k.drawImage(img, 0, 0, back.width, back.height);
+  k.globalCompositeOperation = 'source-in';
+  const C = g.C, mid = [(el.w) / 2, (el.h) / 2], gr = k.createLinearGradient(C[0] * s, C[1] * s, (C[0] + mid[0]) / 2 * s, (C[1] + mid[1]) / 2 * s);
+  gr.addColorStop(0, '#fffdf8'); gr.addColorStop(1, '#e4ded2');
+  k.fillStyle = gr; k.fillRect(0, 0, back.width, back.height);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.shadowColor = 'rgba(0,0,0,.28)'; ctx.shadowBlur = 5 * s; ctx.shadowOffsetY = 2 * s;
+  ctx.transform(...g.m);
+  ctx.beginPath(); g.tri.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.clip();
+  ctx.drawImage(back, 0, 0, el.w, el.h);
+  ctx.restore();
+}
+
+// Ink rubbed along the edge: three soft strokes along the outline, kept inside the piece.
+function edgeInk(b, el, W, H) {
+  const ink = el.edgeInk;
+  if (!ink || !ink.pts) return;
+  b.save();
+  b.globalCompositeOperation = 'multiply';
+  b.strokeStyle = ink.c;
+  b.lineCap = 'round';
+  for (let j = 0; j < ink.pts.length; j++) {
+    const k = (j + 1) % ink.pts.length, o = (ink.a[j] + ink.a[k]) / 2;
+    if (o < 0.02) continue;
+    for (const [w, op] of [[30, 0.16], [18, 0.24], [8, 0.36]]) {
+      b.globalAlpha = op * o; b.lineWidth = w;
+      b.beginPath(); b.moveTo(ink.pts[j][0] * W, ink.pts[j][1] * H); b.lineTo(ink.pts[k][0] * W, ink.pts[k][1] * H); b.stroke();
+    }
+  }
+  b.restore();
+}
+
+// A torn edge shows the paper's white core as soft fibers.
+function tornFiber(b, el, W, H) {
+  const f = el.cut && el.cut.fiber;
+  if (!f) return;
+  b.save();
+  b.lineJoin = 'round';
+  for (const [w, c, o] of [[9, '#fffdf6', 0.55], [4.5, '#fffefa', 1]]) {
+    b.globalAlpha = o; b.strokeStyle = c; b.lineWidth = w;
+    b.beginPath(); f.forEach(([u, v], i) => (i ? b.lineTo(u * W, v * H) : b.moveTo(u * W, v * H))); b.stroke();
+  }
+  b.restore();
 }
 
 async function drawBody(b, el, W, H, s) {
@@ -91,12 +145,14 @@ async function drawBody(b, el, W, H, s) {
     b.fillStyle = '#f6eedd';
     b.fillRect(0, 0, W, H);
     if (img) { const t = a.tile || 300; b.fillStyle = pattern(b, img, t, t * img.naturalHeight / img.naturalWidth, s); b.fillRect(0, 0, W, H); }
+    edgeInk(b, el, W, H);
+    tornFiber(b, el, W, H);
     return { blur: 4, y: 2, a: 0.18 };
   }
   if (el.type === 'tape') {
     const img = a && await loadImage(a.url);
     b.beginPath();
-    tornPoints(el.id).forEach(([x, y], i) => (i ? b.lineTo : b.moveTo).call(b, x / 100 * W, y / 100 * H));
+    tornPoints(el).forEach(([x, y], i) => (i ? b.lineTo : b.moveTo).call(b, x / 100 * W, y / 100 * H));
     b.closePath();
     b.clip();
     if (img) { const tw = H * img.naturalWidth / img.naturalHeight; b.fillStyle = pattern(b, img, tw, H, s); b.fillRect(0, 0, W, H); }
@@ -130,7 +186,11 @@ async function drawBody(b, el, W, H, s) {
     const img = a && await loadImage(a.url);
     const noise = await loadImage('img/ink-noise.png');
     if (!img) return null;
-    b.fillStyle = el.ink || '#b5322c';
+    if (el.ink2) {
+      const g = b.createLinearGradient(0, H * 0.4, W, H * 0.6);
+      g.addColorStop(0, el.ink); g.addColorStop(0.38, el.ink); g.addColorStop(0.62, el.ink2); g.addColorStop(1, el.ink2);
+      b.fillStyle = g;
+    } else b.fillStyle = el.ink || '#b5322c';
     b.fillRect(0, 0, W, H);
     b.globalCompositeOperation = 'destination-in';
     b.drawImage(img, 0, 0, W, H);
@@ -182,6 +242,8 @@ async function drawBody(b, el, W, H, s) {
       b.textBaseline = 'middle';
       wrap(b, el.prompt || 'Add a photo', ww * 0.8).forEach((line, i, all) => b.fillText(line, wx + ww / 2, wy + wh / 2 + (i - (all.length - 1) / 2) * fs * 1.05));
     }
+    edgeInk(b, el, W, H);
+    tornFiber(b, el, W, H);
     return frame === 'none' ? null : { blur: 14, y: 6, a: 0.2 };
   }
   return null;
