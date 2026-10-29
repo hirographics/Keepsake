@@ -2,7 +2,7 @@
 
 A digital scrapbook that starts before the event. Type your plan, get pages with photo prompts, shoot with a disposable-camera look, then stick everything down by hand.
 
-Live app: https://hirographics.github.io/keepsake/
+Live app: https://hirographics.github.io/Keepsake/
 
 ## Layout
 
