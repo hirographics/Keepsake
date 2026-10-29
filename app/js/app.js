@@ -140,7 +140,7 @@ async function showHome() {
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
-      h('span', {}, 'v0.9.1 · holo tilt'))));
+      h('span', {}, 'v0.10 · discoveries'))));
 }
 
 function newBook() {
@@ -965,5 +965,15 @@ function parcelCard() {
   initDiscoveries();
   await Promise.all(FONTS.map(f => document.fonts.load(`40px ${f.css.split(',')[0]}`).catch(() => {})));
   showHome();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // When a new version arrives, switch to it right away from the home screen;
+    // in the middle of a page, say so and let it load next time.
+    const hadOne = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadOne) return;
+      if (document.querySelector('.home')) location.reload();
+      else toastScraps(0, 'A new version is ready. It loads next time you open Keepsake.');
+    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 })();
