@@ -1,0 +1,11 @@
+[build]
+  publish = "app"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/*.psd"
+  [headers.values]
+    Content-Disposition = "attachment"

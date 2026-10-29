@@ -1,0 +1,15 @@
+{
+  "name": "Keepsake",
+  "short_name": "Keepsake",
+  "description": "Plan it, shoot it, stick it down. A scrapbook that starts before the event.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#efe7d9",
+  "theme_color": "#efe7d9",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,324 @@
+{
+ "format": 1,
+ "id": "starter",
+ "name": "Starter (placeholder)",
+ "artist": "Keepsake",
+ "version": "0.1",
+ "stickers": [
+  {
+   "id": "star",
+   "file": "stickers/star.svg",
+   "name": "Star",
+   "tags": [
+    "win",
+    "best",
+    "game"
+   ]
+  },
+  {
+   "id": "heart",
+   "file": "stickers/heart.svg",
+   "name": "Heart",
+   "tags": [
+    "love",
+    "family",
+    "friends"
+   ]
+  },
+  {
+   "id": "die",
+   "file": "stickers/die.svg",
+   "name": "Die",
+   "tags": [
+    "game",
+    "board games",
+    "dice"
+   ]
+  },
+  {
+   "id": "meeple",
+   "file": "stickers/meeple.svg",
+   "name": "Meeple",
+   "tags": [
+    "game",
+    "board games"
+   ]
+  },
+  {
+   "id": "card",
+   "file": "stickers/card.svg",
+   "name": "Playing card",
+   "tags": [
+    "game",
+    "cards"
+   ]
+  },
+  {
+   "id": "trophy",
+   "file": "stickers/trophy.svg",
+   "name": "Trophy",
+   "tags": [
+    "win",
+    "winner",
+    "game"
+   ]
+  },
+  {
+   "id": "sun",
+   "file": "stickers/sun.svg",
+   "name": "Sun",
+   "tags": [
+    "outdoors",
+    "summer",
+    "day"
+   ]
+  },
+  {
+   "id": "flower",
+   "file": "stickers/flower.svg",
+   "name": "Flower",
+   "tags": [
+    "spring",
+    "garden",
+    "birthday"
+   ]
+  },
+  {
+   "id": "balloon",
+   "file": "stickers/balloon.svg",
+   "name": "Balloon",
+   "tags": [
+    "birthday",
+    "party"
+   ]
+  },
+  {
+   "id": "cake",
+   "file": "stickers/cake.svg",
+   "name": "Cake",
+   "tags": [
+    "birthday",
+    "party"
+   ]
+  },
+  {
+   "id": "leaf",
+   "file": "stickers/leaf.svg",
+   "name": "Leaf",
+   "tags": [
+    "outdoors",
+    "hike",
+    "nature"
+   ]
+  },
+  {
+   "id": "mountain",
+   "file": "stickers/mountain.svg",
+   "name": "Mountain",
+   "tags": [
+    "outdoors",
+    "hike",
+    "trip"
+   ]
+  },
+  {
+   "id": "coffee",
+   "file": "stickers/coffee.svg",
+   "name": "Coffee",
+   "tags": [
+    "food",
+    "morning",
+    "cafe"
+   ]
+  },
+  {
+   "id": "pizza",
+   "file": "stickers/pizza.svg",
+   "name": "Pizza",
+   "tags": [
+    "food",
+    "dinner",
+    "game night"
+   ]
+  },
+  {
+   "id": "plane",
+   "file": "stickers/plane.svg",
+   "name": "Plane",
+   "tags": [
+    "trip",
+    "travel",
+    "vacation"
+   ]
+  },
+  {
+   "id": "camera",
+   "file": "stickers/camera.svg",
+   "name": "Camera",
+   "tags": [
+    "photo",
+    "memories",
+    "trip"
+   ]
+  },
+  {
+   "id": "arrow",
+   "file": "stickers/arrow.svg",
+   "name": "Arrow",
+   "tags": [
+    "note",
+    "look"
+   ]
+  },
+  {
+   "id": "sparkle",
+   "file": "stickers/sparkle.svg",
+   "name": "Sparkle",
+   "tags": [
+    "fun",
+    "best"
+   ]
+  }
+ ],
+ "stamps": [
+  {
+   "id": "postmark",
+   "file": "stamps/postmark.svg",
+   "name": "Postmark",
+   "tags": [
+    "game night",
+    "trip",
+    "mail"
+   ],
+   "ink": "#b5322c"
+  },
+  {
+   "id": "best-day",
+   "file": "stamps/best-day.svg",
+   "name": "Best day",
+   "tags": [
+    "birthday",
+    "fun",
+    "family"
+   ],
+   "ink": "#2f4b8a"
+  },
+  {
+   "id": "winner",
+   "file": "stamps/winner.svg",
+   "name": "Winner",
+   "tags": [
+    "game",
+    "win"
+   ],
+   "ink": "#b5322c"
+  },
+  {
+   "id": "memories",
+   "file": "stamps/memories.svg",
+   "name": "Memories",
+   "tags": [
+    "memories",
+    "family",
+    "trip"
+   ],
+   "ink": "#3b6e4f"
+  },
+  {
+   "id": "hello",
+   "file": "stamps/hello.svg",
+   "name": "Hello",
+   "tags": [
+    "fun",
+    "friends"
+   ],
+   "ink": "#2f4b8a"
+  },
+  {
+   "id": "heart-stamp",
+   "file": "stamps/heart-stamp.svg",
+   "name": "Heart",
+   "tags": [
+    "love",
+    "family"
+   ],
+   "ink": "#b5322c"
+  }
+ ],
+ "tapes": [
+  {
+   "id": "stripe-red",
+   "file": "tapes/stripe-red.svg",
+   "name": "Red stripe"
+  },
+  {
+   "id": "dots-teal",
+   "file": "tapes/dots-teal.svg",
+   "name": "Teal dots"
+  },
+  {
+   "id": "grid-cream",
+   "file": "tapes/grid-cream.svg",
+   "name": "Grid"
+  },
+  {
+   "id": "gingham-pink",
+   "file": "tapes/gingham-pink.svg",
+   "name": "Pink gingham"
+  },
+  {
+   "id": "mustard-plain",
+   "file": "tapes/mustard-plain.svg",
+   "name": "Mustard"
+  },
+  {
+   "id": "kraft-stars",
+   "file": "tapes/kraft-stars.svg",
+   "name": "Kraft stars"
+  }
+ ],
+ "papers": [
+  {
+   "id": "cream",
+   "file": "papers/cream.png",
+   "name": "Cream",
+   "tile": 300
+  },
+  {
+   "id": "kraft",
+   "file": "papers/kraft.png",
+   "name": "Kraft",
+   "tile": 300
+  },
+  {
+   "id": "grid",
+   "file": "papers/grid.png",
+   "name": "Grid",
+   "tile": 300
+  },
+  {
+   "id": "dots",
+   "file": "papers/dots.png",
+   "name": "Dot grid",
+   "tile": 300
+  },
+  {
+   "id": "lined",
+   "file": "papers/lined.png",
+   "name": "Lined",
+   "tile": 300
+  },
+  {
+   "id": "blush",
+   "file": "papers/blush.png",
+   "name": "Blush",
+   "tile": 300
+  },
+  {
+   "id": "navy",
+   "file": "papers/navy.png",
+   "name": "Navy",
+   "tile": 300
+  }
+ ]
+}
