@@ -7,6 +7,8 @@ import { assembly } from './assembly.js';
 import { ownsHolo, holoCount, HOLO_KINDS, resetGift, loadRewards, scraps, catalog, owns, earn, buy, bundle, buyBundle, thisWeek, giftReady, openGift, onEarned, onRewards, markActive, EARN } from './rewards.js';
 import { sound } from './audio.js';
 import { initTilt, startTilt, lightOn } from './tilt.js';
+import { tried } from './tried.js';
+import { DISCOVERIES, found, foundCount, initDiscoveries, scanBook, DISCOVERY_PAY } from './discoveries.js';
 import { Editor, FONTS, fontCss } from './editor.js';
 import { lastLook, originalLook, originalUrl } from './look.js';
 import { canLiveCamera, openCamera, openDevelop } from './camera.js';
@@ -217,6 +219,7 @@ async function openBook(id) {
   editor = new Editor(host, book, {
     onChange: b => {
       queueSave(b);
+      scanBook(b);
       if (!editor.mode) drawTools(editor.selEl);
       const pg = editor.page, photos = pg.els.filter(e => e.type === 'photo');
       if (photos.length && photos.every(e => e.blob)) earn('page:' + pg.id, EARN.page, 'Page finished');
@@ -308,7 +311,7 @@ async function openBook(id) {
       panel: tools,
       onExit: () => { editor.setMode(null); drawTools(null); },
       onShare: () => openShare(),
-      onFinished: (hand, total) => { if (total && hand >= total / 2) earn('asm:' + editor.page.id, EARN.assemble, 'Put together by hand'); },
+      onFinished: (hand, total) => { if (total && hand >= total / 2) earn('asm:' + editor.page.id, EARN.assemble, 'Put together by hand'); if (total >= 5 && hand >= total) tried('by-hand'); },
     });
     editor.setMode(mode);
   }
@@ -389,7 +392,7 @@ async function openBook(id) {
       h('div', { class: 'label' }, 'This page'),
       h('div', { class: 'layouts' }, LAYOUTS.map(L => h('button', {
         class: 'layout-pick' + (L.id === cur ? ' on' : ''),
-        onclick: () => { s.close(); editor.glide(() => relayout(book, editor.pageIndex, L.id)); ui.hint('Everything you added came along.'); },
+        onclick: () => { s.close(); editor.glide(() => relayout(book, editor.pageIndex, L.id)); tried('layout-swap'); ui.hint('Everything you added came along.'); },
       }, layoutThumb(L), h('small', {}, L.name)))),
       h('div', { class: 'label' }, 'Theme for the whole book'),
       h('div', { class: 'chips' }, SETS.map(set => h('button', {
@@ -397,6 +400,7 @@ async function openBook(id) {
         onclick: () => {
           s.close();
           setTheme(book, set.id);
+          tried('theme-swap');
           editor.undoStack.length = 0; editor.redoStack.length = 0;
           editor.render(); queueSave(book); drawTools(null);
           ui.hint(`Now ${set.name.toLowerCase()}. Your photos and your own changes stay.`);
@@ -466,6 +470,7 @@ async function openBook(id) {
     }
     async function shareFiles(files, pic) {
       status.textContent = '';
+      tried('shared');
       // Test copy: the page saves through the Claude app. Installed: the iPhone share sheet.
       if (window.KEEPSAKE_ARTIFACT && window.claude && window.claude.use) {
         const downloads = await window.claude.use('downloads');
@@ -611,7 +616,7 @@ function editText(el, done) {
   ta.addEventListener('input', () => { el.text = ta.value; editor.refresh(el); });
   const fonts = h('div', { class: 'chips' }, FONTS.map(f => h('button', {
     class: 'chip' + (f.id === el.font ? ' on' : ''), style: `font-family:${f.css}`,
-    onclick: e => { el.font = f.id; ta.style.fontFamily = f.css; fonts.querySelectorAll('.chip').forEach(c => c.classList.remove('on')); e.currentTarget.classList.add('on'); editor.refresh(el); },
+    onclick: e => { el.font = f.id; el.mine = true; ta.style.fontFamily = f.css; fonts.querySelectorAll('.chip').forEach(c => c.classList.remove('on')); e.currentTarget.classList.add('on'); editor.refresh(el); },
   }, f.name)));
   const size = h('input', { type: 'range', min: 18, max: 160, value: Math.round(el.size) });
   size.addEventListener('input', () => { const k = size.value / el.size; el.size = +size.value; el.w = Math.max(80, el.w * k); editor.refresh(el); });
@@ -734,7 +739,7 @@ function openPalette(startKind = 'stickers') {
       h('button', { class: 'linkish', onclick: () => { pal.clear(); themePalette(setById(book.setId)).forEach(k => pal.add(k)); show(cur); } }, 'Reset to theme')),
     bar, pane), {
     tall: true,
-    onClose: () => { book.palette = [...pal]; drawerAll = false; queueSave(book); },
+    onClose: () => { book.palette = [...pal]; drawerAll = false; queueSave(book); if (pal.size) tried('palette'); },
   });
   show(cur);
 }
@@ -747,12 +752,22 @@ function scrapsChip() {
   return chip;
 }
 
+// Toasts wait their turn, so two at once never cover each other.
+let toastAt = 0;
 function toastScraps(amount, reason) {
-  if (amount) sound.coin();
-  const t = h('div', { class: 'scrap-toast' }, amount ? h('span', { class: 'coin' }) : null, amount ? h('strong', {}, `${amount > 0 ? '+' : ''}${amount}`) : null, h('span', {}, reason));
-  document.body.append(t);
-  requestAnimationFrame(() => t.classList.add('show'));
-  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 2200);
+  const wait = Math.max(0, toastAt - Date.now());
+  toastAt = Date.now() + wait + 2000;
+  setTimeout(() => {
+    if (amount) sound.coin();
+    const disc = /^Discovery: /.test(reason);
+    const t = h('div', { class: 'scrap-toast' + (disc ? ' discovery' : '') },
+      disc ? h('span', { class: 'disc-star' }, '✦') : null,
+      amount ? h('span', { class: 'coin' }) : null, amount ? h('strong', {}, `${amount > 0 ? '+' : ''}${amount}`) : null,
+      h('span', {}, disc ? reason.replace(/^Discovery: /, 'Found: ') : reason));
+    document.body.append(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 1900);
+  }, wait);
 }
 
 const KIND_NAMES = { stickers: 'Stickers', stamps: 'Stamps', tapes: 'Tape', papers: 'Paper', shapes: 'Cut shapes', edges: 'Pattern scissors' };
@@ -794,6 +809,11 @@ function openShop(focusKind = null, focusId = null) {
         if (kind === focusKind) setTimeout(() => sec.scrollIntoView({ block: 'start', behavior: 'smooth' }), 250);
       }
       if (!pane.children.length) pane.append(h('p', { class: 'note' }, 'You own everything in the shop. New packs will show up here.'));
+    } else if (i === 2) {
+      pane.append(h('p', { class: 'note tight' }, `${foundCount()} of ${DISCOVERIES.length} found. Each one pays ${DISCOVERY_PAY} scraps the first time you try it. They are about trying things, never about how a page looks.`),
+        h('div', { class: 'disc-grid' }, [...DISCOVERIES].sort((a, b) => found(b.id) - found(a.id)).map(d => found(d.id)
+          ? h('div', { class: 'disc found' }, h('span', { class: 'disc-star' }, '✦'), h('strong', {}, d.name), h('span', {}, d.did))
+          : h('div', { class: 'disc' }, h('span', { class: 'disc-star' }, '?'), h('strong', {}, 'Not found yet'), h('span', {}, d.hint)))));
     } else {
       const owned = all.filter(c => owns(c.id)).length;
       pane.append(h('p', { class: 'note tight' }, `${owned} of ${all.length} collected · ${holoCount()} holo found.`));
@@ -811,7 +831,7 @@ function openShop(focusKind = null, focusId = null) {
     const short = c.price - scraps();
     if (short > 0) {
       confirmBox.append(h('p', {}, `${c.name}: ${c.price} scraps. You need ${short} more.`),
-        h('p', { class: 'note tight' }, `A finished page pays ${EARN.page}, each shot from your list ${EARN.shot}, and putting a page together ${EARN.assemble}.`),
+        h('p', { class: 'note tight' }, `A finished page pays ${EARN.page}, each shot from your list ${EARN.shot}, putting a page together ${EARN.assemble}, and each new discovery ${DISCOVERY_PAY}.`),
         h('button', { class: 'btn small', onclick: () => { confirmBox.hidden = true; } }, 'OK'));
       return;
     }
@@ -824,7 +844,7 @@ function openShop(focusKind = null, focusId = null) {
           if (r.ok) { drawWallet(); show(tab); toastScraps(-c.price, `${c.name} is yours`); }
         } }, 'Buy it')));
   }
-  ['Shop', 'My collection'].forEach((name, i) => bar.append(h('button', { onclick: () => show(i) }, name)));
+  ['Shop', 'My collection', 'Discoveries'].forEach((name, i) => bar.append(h('button', { onclick: () => show(i) }, name)));
   drawWallet();
   sheet('Shop', h('div', { class: 'stack' }, wallet, bar, confirmBox, pane), { tall: true });
   show(0);
@@ -875,6 +895,7 @@ function parcelCard() {
   await Promise.all([loadPacks(), document.fonts.ready, loadRewards()]);
   initTilt();
   onEarned((amount, reason) => toastScraps(amount, reason));
+  initDiscoveries();
   await Promise.all(FONTS.map(f => document.fonts.load(`40px ${f.css.split(',')[0]}`).catch(() => {})));
   showHome();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

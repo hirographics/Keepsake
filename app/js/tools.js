@@ -2,6 +2,7 @@
 import { uid } from './db.js';
 import { asset } from './packs.js';
 import { sound } from './audio.js';
+import { tried } from './tried.js';
 import { PAGE_W, PAGE_H } from './templates.js';
 import { fitPhoto, photoBox } from './editor.js';
 
@@ -199,6 +200,7 @@ export function cutMode(editor, el, ui) {
       if (Math.abs(polyArea(ring)) < 900) { ui.hint('That piece is too small. Draw a bigger loop.'); return; }
       ring = smoothRing(resample(ring, 4));
       apply(ring);
+      tried('cut-free');
     },
     async shape(id) {
       const S = sheetOf(el);
@@ -218,6 +220,7 @@ export function cutMode(editor, el, ui) {
       path.setAttribute('points', '');
       scis.style.opacity = '0';
       apply(resample(ring, 4));
+      tried('cut-shape');
     },
     trim() {
       const S = sheetOf(el);
@@ -246,6 +249,7 @@ export function cutMode(editor, el, ui) {
   }
   function apply(ring) {
     const shaped = edgeIt(ring, edge);
+    if (edge !== 'straight') tried('edge-' + edge);
     const oldNode = editor.nodes.get(el.id);
     const S = sheetOf(el);
     const oldRing = el.cut ? el.cut.pts : [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -394,6 +398,7 @@ export function tapeMode(editor, ui) {
       const el = tmp;
       el.w = len;
       el.x = (s0.x + p.x) / 2; el.y = (s0.y + p.y) / 2;
+      tried('tape-roll');
       flap.lay(() => {
         node.remove();
         editor.change(() => editor.page.els.push(el));

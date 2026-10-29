@@ -448,6 +448,7 @@ export class Editor {
     if (this.pointers.size > 0) return;
     this.gesture = null;
     if (g.moved) {
+      if (g.el) g.el.mine = true; // you moved it yourself, so it counts as your own touch
       this.commit(g.before);
     } else if (g.mode === 'drag' && g.wasSelected) {
       this.onTapSelected && this.onTapSelected(g.el);

@@ -44,6 +44,7 @@ export function catalog() {
   for (const e of EDGES) list.push({ id: 'edge/' + e.id, kind: 'edges', name: e.name + ' edge', price: PRICE.edges, item: e });
   return list;
 }
+export const claimed = key => !!state && !!state.claimed[key];
 export const owns = id => STARTER.has(id) || (state && state.owned.includes(id));
 // Holo versions: stickers and tape only, found in parcels, never sold.
 export const HOLO_KINDS = ['stickers', 'tapes'];

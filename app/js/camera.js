@@ -1,5 +1,6 @@
 // Two full screens: the in-app camera and the develop screen.
 import { h } from './ui.js';
+import { tried } from './tried.js';
 import { EFFECTS, develop, newSeed, rememberLook, disposableLook, originalLook, isPlain } from './look.js';
 
 // The live camera needs the installed app. The test copy's page is not allowed to open it.
@@ -81,7 +82,7 @@ export function openDevelop({ src, look, title = 'Develop' }) {
     const stage = h('div', { class: 'dev-stage' });
     const chips = h('div', { class: 'dev-chips' });
     const presets = h('div', { class: 'dev-presets' });
-    const leakBtn = h('button', { class: 'dev-leak', onclick: () => { look.seed = newSeed(); draw(); } }, 'New light leak');
+    const leakBtn = h('button', { class: 'dev-leak', onclick: () => { look.seed = newSeed(); tried('new-leak'); draw(); } }, 'New light leak');
     const root = h('div', { class: 'dev' },
       h('div', { class: 'dev-top' },
         h('button', { class: 'dev-cancel', onclick: () => finish(null) }, 'Cancel'),
