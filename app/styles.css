@@ -674,3 +674,31 @@ html.tilting .holo-sheen::after { animation: none; background-position: calc(50%
 .bubble.pop { transition: transform .22s, opacity .22s; transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
 @keyframes bubble-in { from { transform: translate(-50%, -50%) scale(.3); opacity: 0; } }
 .stamp-tool.bearing { filter: brightness(.96); }
+
+/* Glue on the back of a paper or photo, right on its spot */
+.piece-back { position: absolute; z-index: 4; transform-origin: 50% 50%; pointer-events: none;
+  background: #ece3d1 repeating-linear-gradient(115deg, rgba(120,95,60,.05) 0 2px, transparent 2px 7px); box-shadow: 0 6px 14px rgba(0,0,0,.18); }
+.piece-back.photo { background: #f7f5f0 repeating-linear-gradient(-30deg, rgba(110,120,140,.07) 0 1px, transparent 1px 18px); }
+.piece-back::after { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 0 2px rgba(0,0,0,.06); pointer-events: none; }
+.glue-layer { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: screen; filter: drop-shadow(0 0 1px rgba(150,170,200,.6)); }
+.piece-back.flip-over { animation: flip-over .38s ease-in forwards; }
+@keyframes flip-over { 0% { transform: var(--rot) perspective(900px) rotateY(0deg); } 60% { transform: var(--rot) perspective(900px) rotateY(90deg); opacity: 1; } 100% { transform: var(--rot) perspective(900px) rotateY(90deg); opacity: 0; } }
+.glue-hand { position: absolute; z-index: 6; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.glue-hand.on { opacity: 1; }
+.glue-hand.stick { width: 44px; height: 130px; margin: -128px 0 0 -22px; border-radius: 10px 10px 6px 6px;
+  background: linear-gradient(90deg, #7d4db3, #a679d8 45%, #6e3fa3); box-shadow: 0 8px 14px rgba(0,0,0,.25); }
+.glue-hand.stick::after { content: ''; position: absolute; left: 4px; right: 4px; bottom: -10px; height: 14px; border-radius: 4px 4px 8px 8px; background: linear-gradient(#fbfbff, #e6e8f0); }
+.glue-hand.tape { width: 70px; height: 40px; margin: -36px 0 0 -14px; border-radius: 20px 10px 10px 20px; transform: rotate(-30deg);
+  background: linear-gradient(#5aa6b8, #3e8296); box-shadow: 0 6px 12px rgba(0,0,0,.25); }
+.glue-hand.tape::after { content: ''; position: absolute; left: 3px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 3px #d9e4ea; }
+.glue-picks { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+.glue-pick { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; border: 2px solid var(--line); background: #fffdf8; font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.glue-pick.on { border-color: var(--ink); color: var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+.glue-ic { width: 12px; height: 26px; border-radius: 4px; flex: none; }
+.glue-ic.stick { background: linear-gradient(90deg, #7d4db3, #a679d8); }
+.glue-ic.tape { width: 24px; height: 14px; border-radius: 8px; background: #4b93a7; }
+
+/* Writing: scratching makes the words come up in their own ink */
+.crumb { position: absolute; width: 4px; height: 3px; border-radius: 1px; background: #d8cfc0; box-shadow: 0 1px 1px rgba(0,0,0,.2); pointer-events: none; z-index: 4; transition: transform .6s ease-in, opacity .6s ease-in; }
+.foil.fill-in { animation: fill-in .38s ease-out; }
+@keyframes fill-in { from { opacity: .6; } to { opacity: 1; } }

@@ -65,6 +65,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
       const el = current();
       if (!el || !ready) return;
       if (stage === 'smooth') { smoothAt(p); return; }
+      if (stage === 'glue' && glue) { glueAt(p, true); return; }
       if (stage === 'press' && floater) {
         floater.classList.remove('flying'); floater.classList.add('squish');
         floater.style.transform = `${floater._at} scale(${floater._s * 1.01})`;
@@ -76,12 +77,14 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     },
     move(e, p) {
       if (stage === 'smooth') { smoothAt(p); return; }
+      if (stage === 'glue' && glue && glue.last) { glueAt(p, false); return; }
       if (tapeDrag) moveTape(p);
       if (scrib && scrib.down) scratchAt(p);
     },
     up(e, p) {
       const el = current();
       if (stage === 'press' && floater && floater.classList.contains('squish')) { pressDown(el); return; }
+      if (stage === 'glue') { glueLift(); return; }
       if (tapeDrag) { endTape(); return; }
       if (scrib && scrib.down) { scrib.down = false; scrib.last = null; }
       if (el && el.type === 'stamp' && aiming) {
@@ -115,35 +118,27 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
       h('div', { class: 'asm-body' }, tray, h('div', { class: 'asm-text' }, say, act))));
 
     if (el.type === 'paper' || el.type === 'photo') {
-      const piece = trayPiece(el, tray, true);
-      let dots = 0;
-      say.textContent = 'Tap the back to add glue.';
-      piece.addEventListener('pointerdown', e => {
-        if (ready) return;
-        const r = piece.getBoundingClientRect();
-        piece.append(h('span', { class: 'glue-dot', style: `left:${e.clientX - r.left}px;top:${e.clientY - r.top}px` }));
-        sound.glue();
-        dots++;
-        if (dots === 1) act.append(h('button', { class: 'btn small', onclick: flip }, 'Flip it over'));
-        if (dots >= 4) flip();
-      });
-      function flip() {
-        if (ready) return;
-        piece.classList.add('flipping');
-        setTimeout(() => { piece.classList.remove('backside'); piece.querySelectorAll('.glue-dot').forEach(d => d.remove()); }, 160);
-        setTimeout(() => piece.classList.remove('flipping'), 330);
-        act.innerHTML = '';
+      // The piece waits face down on its own spot. Run glue over its back, then it flips over and lands.
+      let tool = glueTool();
+      const pick = h('div', { class: 'glue-picks' });
+      const drawPicks = () => {
+        pick.innerHTML = '';
+        for (const [id, name] of [['stick', 'Glue stick'], ['tape', 'Glue tape']]) pick.append(h('button', {
+          class: 'glue-pick ' + id + (tool === id ? ' on' : ''), onclick: () => { tool = id; glueTool(id); if (glue) glue.tool = id; drawPicks(); },
+        }, h('span', { class: 'glue-ic ' + id }), name));
+      };
+      drawPicks();
+      tray.append(pick);
+      say.textContent = 'Rub glue over the back, right on the page.';
+      startGlue(el, tool, () => {
         say.textContent = 'Here it goes...';
         // It lands on its spot. Rub it down to push out the air bubbles.
-        setTimeout(() => flyIn(piece, el, 1.0, () => {
-          floater.remove(); floater = null;
-          nodeOf(el)?.classList.remove('unplaced');
-          sound.press();
-          startSmooth(el);
-          say.textContent = 'Rub it down to smooth out the bubbles.';
-          ready = true;
-        }), 340);
-      }
+        nodeOf(el)?.classList.remove('unplaced');
+        sound.press();
+        startSmooth(el);
+        say.textContent = 'Rub it down to smooth out the bubbles.';
+      });
+      ready = true;
     } else if (el.type === 'sticker') {
       // Face down on its shaped backing. Pull the backing off from any corner; it folds back as you
       // drag, then the sticker flips face up.
@@ -187,7 +182,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
       act.append(pad);
     } else if (el.type === 'text') {
       trayPiece(el, tray, false);
-      say.textContent = 'Scratch inside the outline. The words come up in foil where you scratch.';
+      say.textContent = 'Scratch inside the outline. The words come up wherever you scratch.';
       startScratch(el);
       ready = true;
     } else {
@@ -212,6 +207,85 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     const node = editor.makeNode(el);
     const a = node.firstChild.style.backgroundImage;
     tray.append(h('div', { class: 'tray-roll', style: `background-image:${a}` }));
+  }
+
+  // ---------- glue on the back ----------
+  // Glue stick: a wide, glossy smear with a waxy squeak. Glue tape: a thin, crisp strip from a runner.
+  let glue = null;
+  function glueTool(set) {
+    try { if (set) localStorage.setItem('keepsake.glue', set); return localStorage.getItem('keepsake.glue') || 'stick'; } catch (e) { return set || 'stick'; }
+  }
+  function startGlue(el, tool, then) {
+    const k = 2, W = Math.max(20, Math.ceil(el.w)), H = Math.max(20, Math.ceil(el.h));
+    const back = h('div', { class: 'piece-back ' + el.type });
+    back.style.cssText = `left:${el.x - W / 2}px;top:${el.y - H / 2}px;width:${W}px;height:${H}px;transform:rotate(${el.rot || 0}deg);--rot:rotate(${el.rot || 0}deg)`;
+    // A cut piece shows its cut shape from the back too.
+    const o = outline(el).map(q => boxPt(el, q, W, H));
+    back.style.clipPath = back.style.webkitClipPath = `polygon(${o.map(q => `${(q.x / W * 100).toFixed(2)}% ${(q.y / H * 100).toFixed(2)}%`).join(',')})`;
+    const c = h('canvas', { class: 'glue-layer' }); c.width = W * k; c.height = H * k;
+    back.append(c);
+    const handle = h('div', { class: 'glue-hand ' + tool });
+    editor.fx.append(back, handle);
+    const g = c.getContext('2d'); g.scale(k, k); g.lineCap = 'round'; g.lineJoin = 'round';
+    glue = { el, tool, back, c, g, W, H, k, handle, last: null, travel: 0, then, checks: 0, hiss: null };
+    stage = 'glue';
+  }
+  function glueAt(p, down) {
+    const G = glue, q = boxPt(G.el, p, G.W, G.H);
+    G.handle.className = 'glue-hand ' + G.tool + ' on';
+    G.handle.style.left = p.x + 'px'; G.handle.style.top = p.y + 'px';
+    if (down || !G.last) { G.last = q; if (G.tool === 'tape') { G.hiss = sound.unroll(); } return; }
+    const a = G.last, d = Math.hypot(q.x - a.x, q.y - a.y);
+    if (d < 1.5) return;
+    const g = G.g;
+    if (G.tool === 'stick') {
+      // Wide and glossy: a soft translucent band with a brighter core.
+      g.strokeStyle = 'rgba(250, 248, 255, .42)'; g.lineWidth = 46;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(q.x, q.y); g.stroke();
+      g.strokeStyle = 'rgba(255, 255, 255, .5)'; g.lineWidth = 16;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(q.x, q.y); g.stroke();
+      G.travel += d;
+      if (G.travel > 34) { G.travel = 0; sound.scribble(); }
+    } else {
+      // A crisp strip with a faint dotted adhesive pattern.
+      g.strokeStyle = 'rgba(255, 255, 255, .62)'; g.lineWidth = 14;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(q.x, q.y); g.stroke();
+      g.strokeStyle = 'rgba(190, 200, 215, .55)'; g.lineWidth = 2; g.setLineDash([2, 5]);
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(q.x, q.y); g.stroke(); g.setLineDash([]);
+      G.hiss && G.hiss.speed(d * editor.scale * 1.4);
+    }
+    G.last = q;
+    if (++G.checks % 5 === 0) glueCheck();
+  }
+  function glueLift() {
+    if (!glue) return;
+    glue.last = null; glue.handle.classList.remove('on');
+    if (glue.hiss) { glue.hiss.stop(); glue.hiss = null; sound.tear(); }
+    glueCheck();
+  }
+  // Enough glue: about half the back with a stick, or a few strips of tape.
+  function glueCheck() {
+    const G = glue; if (!G) return;
+    const sm = document.createElement('canvas'), n = 40;
+    sm.width = n; sm.height = Math.max(6, Math.round(n * G.H / G.W));
+    const t = sm.getContext('2d'); t.drawImage(G.c, 0, 0, sm.width, sm.height);
+    const d = t.getImageData(0, 0, sm.width, sm.height).data;
+    let on = 0; for (let j = 3; j < d.length; j += 4) if (d[j] > 40) on++;
+    const share = on / (sm.width * sm.height);
+    if (share >= (G.tool === 'stick' ? 0.5 : 0.22)) glueDone();
+  }
+  function glueDone() {
+    const G = glue; glue = null; stage = null;
+    if (G.hiss) G.hiss.stop();
+    G.handle.remove();
+    G.back.classList.add('flip-over');
+    sound.swoosh();
+    setTimeout(() => { G.back.remove(); G.then(); }, 380);
+  }
+  // A page point in the piece's own box, 0..W and 0..H.
+  function boxPt(el, p, W, H) {
+    const t = (el.rot || 0) * Math.PI / 180, dx = p.x - el.x, dy = p.y - el.y;
+    return { x: dx * Math.cos(t) + dy * Math.sin(t) + W / 2, y: -dx * Math.sin(t) + dy * Math.cos(t) + H / 2 };
   }
 
   // ---------- landing on its spot ----------
@@ -268,6 +342,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
   }
   function clearPiece() {
     if (floater) { floater.remove(); floater = null; }
+    if (glue) { if (glue.hiss) glue.hiss.stop(); glue.back.remove(); glue.handle.remove(); glue = null; }
     for (const bb of bubbles) bb.b.remove();
     bubbles = []; stage = null;
   }
@@ -364,16 +439,9 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     } else { d.flap.remove(); d.node.remove(); pulse(); }
   }
 
-  // ---------- writing: letters made of scratcher foil ----------
-  // Only the letters are foil. Nothing covers the page: scratching inside the outline makes
-  // the letters appear right where your finger goes, with a little glint. When most of each
-  // word is showing, the rest shimmers in and the foil settles into ink.
-  function foilFill(g, W, H) {
-    const gr = g.createLinearGradient(0, 0, W, H * 1.6);
-    gr.addColorStop(0, '#8e949d'); gr.addColorStop(0.3, '#e6e9ee'); gr.addColorStop(0.48, '#a1a7b0');
-    gr.addColorStop(0.7, '#f1f3f6'); gr.addColorStop(1, '#949aa3');
-    return gr;
-  }
+  // ---------- writing: a scratcher in reverse ----------
+  // Nothing covers the page. Scratching inside the outline makes the words come up in their own
+  // ink right where your finger goes, with crumbs falling away. When most of it shows, the rest fills in.
   function startScratch(el) {
     const n = nodeOf(el);
     n.classList.remove('unplaced');
@@ -381,7 +449,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     const k = 2, pad = 5;
     const W = Math.max(20, Math.ceil(el.w)), H = Math.max(20, Math.ceil(el.h + pad * 2));
     const mk = () => { const c = document.createElement('canvas'); c.width = W * k; c.height = H * k; const g = c.getContext('2d'); g.scale(k, k); return [c, g]; };
-    // The foil letters, laid out exactly like the finished text.
+    // The letters, laid out exactly like the finished text.
     const [letters, lg] = mk();
     lg.font = `${el.size}px ${fontCss(el.font)}`;
     lg.textBaseline = 'middle';
@@ -389,17 +457,9 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     lg.textAlign = align;
     const lh = el.size * 1.12, x = align === 'left' ? 0 : align === 'right' ? W : W / 2;
     const lines = wrap(lg, el.text || '', W);
-    lg.fillStyle = foilFill(lg, W, H);
+    // The letters in their own ink. Scratching uncovers them, like a scratcher in reverse.
+    lg.fillStyle = el.color || '#3a2e2a';
     lines.forEach((line, j) => lg.fillText(line, x, pad + j * lh + lh / 2));
-    // Specks of glitter inside the letters, and a thin darker rim so silver reads on light paper.
-    lg.globalCompositeOperation = 'source-atop';
-    for (let j = 0; j < W * H / 40; j++) {
-      lg.fillStyle = Math.random() < 0.6 ? 'rgba(255,255,255,.9)' : 'rgba(90,95,105,.45)';
-      lg.fillRect(Math.random() * W, Math.random() * H, 1.1, 1.1);
-    }
-    lg.globalCompositeOperation = 'source-over';
-    lg.strokeStyle = 'rgba(70,74,82,.55)'; lg.lineWidth = Math.max(0.6, el.size / 60);
-    lines.forEach((line, j) => lg.strokeText(line, x, pad + j * lh + lh / 2));
     // Where you have scratched so far.
     const [mask, mg] = mk();
     mg.lineCap = 'round'; mg.lineJoin = 'round'; mg.strokeStyle = '#000';
@@ -443,20 +503,26 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     drawFoil();
     const d = s.last ? dist(s.last, p) : 0;
     s.travel += d;
-    if (s.travel > 22) { sound.scratch(); s.travel = 0; glint(p); }
+    if (s.travel > 22) { sound.scratch(); s.travel = 0; crumbs(p); }
     s.last = p;
     if (++s.checks % 6 === 0) checkScratch();
   }
-  // A small twinkle where the foil comes up.
-  function glint(p) {
-    if (scrib.glints > 12) return;
-    const f = document.createElement('div');
-    f.className = 'glint';
-    f.style.left = p.x + (Math.random() - 0.5) * 26 + 'px';
-    f.style.top = p.y + (Math.random() - 0.5) * 18 + 'px';
-    editor.fx.append(f);
-    scrib.glints++;
-    setTimeout(() => { f.remove(); if (scrib) scrib.glints--; }, 520);
+  // A few crumbs that fall away where you scratch, like a scratcher, only the words come up instead.
+  function crumbs(p) {
+    if (scrib.glints > 24) return;
+    for (let j = 0; j < 3; j++) {
+      const f = document.createElement('div');
+      f.className = 'crumb';
+      f.style.left = p.x + (Math.random() - 0.5) * 28 + 'px';
+      f.style.top = p.y + (Math.random() - 0.5) * 14 + 'px';
+      editor.fx.append(f);
+      scrib.glints++;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        f.style.transform = `translate(${(Math.random() - 0.5) * 50}px, ${50 + Math.random() * 60}px) rotate(${Math.random() * 300}deg)`;
+        f.style.opacity = '0';
+      }));
+      setTimeout(() => { f.remove(); if (scrib) scrib.glints--; }, 650);
+    }
   }
   function checkScratch() {
     const s = scrib;
@@ -470,11 +536,11 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
   function finishScratch() {
     const s = scrib, el = s.el;
     scrib = null;
-    // The rest of the letters shimmer in, then the foil settles into ink.
+    // The rest of the letters come up, and the real text takes over.
     s.c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
     s.c.getContext('2d').clearRect(0, 0, s.c.width, s.c.height);
     s.c.getContext('2d').drawImage(s.letters, 0, 0);
-    s.c.classList.add('shimmer');
+    s.c.classList.add('fill-in');
     sound.write();
     setTimeout(() => {
       s.n.style.visibility = '';
