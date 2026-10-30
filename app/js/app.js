@@ -389,7 +389,9 @@ async function openBook(id) {
         h('span', { class: 'tool-card-glyph' }, '✋'), h('div', {}, h('strong', {}, 'Put this page together'), h('div', { class: 'note tight' }, 'Every piece lifts off. Glue, peel, tape and stamp it back down, one at a time.'))),
       h('div', { class: 'tool-card' },
         h('div', { class: 'tool-card-head' }, h('strong', {}, 'Paper sheets'), h('span', { class: 'note tight' }, 'Pull a fresh sheet, then cut a shape out of it.')),
-        h('div', { class: 'sheet-stack' }, drawer('papers').map(v => v.it).map(it => h('button', {
+        // Every paper you own, the page's own background last, so a cut piece never vanishes into the page.
+        h('div', { class: 'sheet-stack' }, [...new Map([...drawer('papers'), ...variants('papers')].map(v => [v.it.ref, v.it])).values()]
+          .sort((x, y) => (x.ref === editor.page.paper) - (y.ref === editor.page.paper)).map(it => h('button', {
           class: 'sheet-pick', style: `background-image:url(${it.url})`, 'aria-label': it.name,
           onclick: () => { s.close(); pullSheet(editor, it.ref); ui.hint('Tap Cut to cut a shape out of it.'); },
         })))),
