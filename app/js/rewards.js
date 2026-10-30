@@ -13,7 +13,7 @@ const STARTER = new Set([
   'starter/star', 'starter/heart', 'starter/die', 'starter/meeple', 'starter/sun', 'starter/flower',
   'starter/balloon', 'starter/leaf', 'starter/coffee', 'starter/arrow',
   'starter/postmark', 'starter/best-day', 'starter/hello', 'starter/heart-stamp',
-  'starter/stripe-red', 'starter/dots-teal', 'starter/grid-cream', 'starter/mustard-plain',
+  'starter/oceanic-green', 'starter/stripe-red', 'starter/dots-teal', 'starter/grid-cream', 'starter/mustard-plain',
   'starter/cream', 'starter/kraft', 'starter/grid', 'starter/dots', 'starter/lined',
   'shape/circle', 'shape/heart', 'shape/tag',
   'edge/straight', 'edge/zigzag',
