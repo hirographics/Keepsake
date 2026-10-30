@@ -29,6 +29,9 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     .map(x => x.el);
   let scrib = null;
   let i = 0, ready = false, svg, ghosts = new Map(), tapeDrag = null, st = null, inkLevel = 0, aiming = null;
+  // Where each piece goes was decided while planning, so nothing is placed twice here:
+  // each piece flies to its own spot and you only do the satisfying part.
+  let stage = null, floater = null, bubbles = [];
 
   const nodeOf = el => editor.nodes.get(el.id);
   const current = () => queue[i];
@@ -54,31 +57,37 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     exit() {
       if (scrib) endScratch();
       if (tapeDrag) { tapeDrag.flap.remove(); tapeDrag.node.remove(); tapeDrag.hiss.stop(); tapeDrag = null; }
+      clearPiece();
       for (const n of editor.nodes.values()) n.classList.remove('unplaced', 'settle', 'writing', 'scribbling');
     },
     // Touches on the page: pulling tape along its outline, or pressing a stamp on its spot.
     down(e, p) {
       const el = current();
       if (!el || !ready) return;
+      if (stage === 'smooth') { smoothAt(p); return; }
+      if (stage === 'press' && floater) {
+        floater.classList.remove('flying'); floater.classList.add('squish');
+        floater.style.transform = `${floater._at} scale(${floater._s * 1.01})`;
+        sound.peel(); return;
+      }
       if (el.type === 'tape') startTape(el, p);
       if (el.type === 'text' && scrib) { scrib.down = true; scrib.last = p; scratchAt(p); }
-      if (el.type === 'stamp') { aiming = p; st.hover(p); }
+      if (el.type === 'stamp') { aiming = { x: el.x, y: el.y }; st.hover(aiming); st.tool.classList.add('bearing'); }
     },
     move(e, p) {
+      if (stage === 'smooth') { smoothAt(p); return; }
       if (tapeDrag) moveTape(p);
       if (scrib && scrib.down) scratchAt(p);
-      if (aiming) { aiming = p; st.hover(p); }
     },
     up(e, p) {
       const el = current();
+      if (stage === 'press' && floater && floater.classList.contains('squish')) { pressDown(el); return; }
       if (tapeDrag) { endTape(); return; }
       if (scrib && scrib.down) { scrib.down = false; scrib.last = null; }
       if (el && el.type === 'stamp' && aiming) {
-        // Lands where you aimed; it snaps onto its outline only if you are close.
-        const at = aiming; aiming = null;
-        const close = dist(at, el) < Math.max(70, el.w * 0.5);
-        st.press(close ? { x: el.x, y: el.y } : at, () => {
-          if (!close) { sound.pat(); pulse(); return; }
+        // The stamp is already over its spot: hold anywhere to bear down, let go to stamp.
+        aiming = null;
+        st.press({ x: el.x, y: el.y }, () => {
           sound.thock();
           inkLevel = 0;
           place(el);
@@ -124,9 +133,16 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
         setTimeout(() => { piece.classList.remove('backside'); piece.querySelectorAll('.glue-dot').forEach(d => d.remove()); }, 160);
         setTimeout(() => piece.classList.remove('flipping'), 330);
         act.innerHTML = '';
-        say.textContent = 'Drag it onto its outline.';
-        ready = true;
-        draggable(piece, el);
+        say.textContent = 'Here it goes...';
+        // It lands on its spot. Rub it down to push out the air bubbles.
+        setTimeout(() => flyIn(piece, el, 1.0, () => {
+          floater.remove(); floater = null;
+          nodeOf(el)?.classList.remove('unplaced');
+          sound.press();
+          startSmooth(el);
+          say.textContent = 'Rub it down to smooth out the bubbles.';
+          ready = true;
+        }), 340);
       }
     } else if (el.type === 'sticker') {
       // Face down on its shaped backing. Pull the backing off from any corner; it folds back as you
@@ -139,9 +155,13 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
         holder.innerHTML = '';
         const piece = trayPiece(el, tray, false);
         holder.remove();
-        ready = true;
-        say.textContent = 'Drag it onto its outline.';
-        draggable(piece, el);
+        say.textContent = 'Here it goes...';
+        // It hovers over its spot, sticky side down. Press it on with your thumb.
+        setTimeout(() => flyIn(piece, el, 1.07, () => {
+          stage = 'press';
+          ready = true;
+          say.textContent = 'Press it down. Anywhere on the page works.';
+        }), 200);
       } });
     } else if (el.type === 'tape') {
       trayRoll(el, tray);
@@ -161,7 +181,8 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
         level.style.height = inkLevel * 100 + '%';
         st.paint(a && a.url, el.ink, inkLevel);
         ready = true;
-        say.textContent = inkLevel < 1 ? 'One more dab for a full print, or hold over the outline to aim.' : 'Inked. Hold over its outline to aim, then lift to stamp.';
+        st.hover({ x: el.x, y: el.y });
+        say.textContent = inkLevel < 1 ? 'One more dab for a full print, or hold the page to bear down and let go to stamp.' : 'Inked. Hold the page to bear down, then let go to stamp.';
       } }, level);
       act.append(pad);
     } else if (el.type === 'text') {
@@ -191,6 +212,64 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     const node = editor.makeNode(el);
     const a = node.firstChild.style.backgroundImage;
     tray.append(h('div', { class: 'tray-roll', style: `background-image:${a}` }));
+  }
+
+  // ---------- landing on its spot ----------
+  // The tray copy lifts out and glides to where the piece was planned. `k` is how high it hovers.
+  function flyIn(holder, el, k, then) {
+    const s = editor.scale, r = editor.pageNode.getBoundingClientRect(), hr = holder.getBoundingClientRect();
+    const node = editor.makeNode(el);
+    editor.place(node, { ...el, x: 0, y: 0 });
+    floater = h('div', { class: 'floater flying' });
+    floater.append(node);
+    document.body.append(floater);
+    floater.style.transform = `translate(${hr.left + hr.width / 2}px, ${hr.top + hr.height / 2}px) scale(${s * 0.45})`;
+    holder.classList.add('lifted');
+    sound.swoosh();
+    floater._at = `translate(${r.left + el.x * s}px, ${r.top + el.y * s}px)`;
+    floater._s = s;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      floater.style.transform = `${floater._at} scale(${s * k})`;
+    }));
+    setTimeout(then, 430);
+  }
+  function pressDown(el) {
+    const f = floater; floater = null; stage = null;
+    f.classList.remove('squish'); f.classList.add('pressing');
+    f.style.transform = `${f._at} scale(${f._s})`;
+    sound.press();
+    setTimeout(() => { f.remove(); place(el); }, 130);
+  }
+  // A few air bubbles under a freshly laid paper or photo; rub over them to push them out.
+  function startSmooth(el) {
+    stage = 'smooth';
+    const n = 3 + Math.floor(Math.random() * 3);
+    for (let j = 0; j < n; j++) {
+      const lx = (Math.random() - 0.5) * el.w * 0.7, ly = (Math.random() - 0.5) * el.h * 0.7;
+      const at = localToPage(el, lx + el.w / 2, ly + el.h / 2);
+      const size = 26 + Math.random() * 30;
+      const b = h('div', { class: 'bubble', style: `left:${at.x}px;top:${at.y}px;width:${size}px;height:${size}px` });
+      editor.fx.append(b);
+      bubbles.push({ b, x: at.x, y: at.y, r: size });
+    }
+  }
+  function smoothAt(p) {
+    for (const bb of bubbles) {
+      if (bb.gone || dist(p, bb) > bb.r + 26) continue;
+      bb.gone = true;
+      bb.b.classList.add('pop');
+      sound.pat();
+      setTimeout(() => bb.b.remove(), 260);
+    }
+    if (bubbles.length && bubbles.every(bb => bb.gone)) {
+      bubbles = []; stage = null;
+      setTimeout(() => place(current()), 180);
+    }
+  }
+  function clearPiece() {
+    if (floater) { floater.remove(); floater = null; }
+    for (const bb of bubbles) bb.b.remove();
+    bubbles = []; stage = null;
   }
 
   // Lets the tray copy be dragged out over the page and dropped on its outline.
@@ -410,6 +489,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
   // ---------- finishing ----------
   function place(el, quiet) {
     if (scrib && scrib.el === el) endScratch();
+    clearPiece();
     const n = nodeOf(el);
     if (!quiet) hand++;
     if (n) {
