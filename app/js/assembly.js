@@ -21,7 +21,7 @@ function outline(el) {
 }
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-export function assembly(editor, { panel, onExit, onShare, onFinished }) {
+export function assembly(editor, { panel, onExit, onShare, onFinished, onDone }) {
   let hand = 0;
   const page = editor.page;
   const queue = page.els.map((el, z) => ({ el, z }))
@@ -433,6 +433,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished }) {
   function finished() {
     for (const g of ghosts.values()) g.classList.add('done');
     onFinished && onFinished(hand, queue.length);
+    onDone && onDone();
     sound.done();
     panel.innerHTML = '';
     panel.append(h('div', { class: 'asm' },

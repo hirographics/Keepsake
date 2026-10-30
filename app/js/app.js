@@ -148,7 +148,7 @@ async function showHome() {
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
-      h('span', {}, 'v0.11 · circles'))));
+      h('span', {}, 'v0.12 · plan and make'))));
 }
 
 // ---------- backup ----------
@@ -345,31 +345,78 @@ async function openBook(id) {
       } }, '+'));
   }
 
+  // Each page has two steps. Plan: the layout, adding and moving pieces, taking the shots.
+  // Make: the hands-on part, putting it together and cutting, taping and stamping by hand.
+  // Make can be skipped; a page is done either way.
+  let phase = 'plan';
+  const setPhase = p => { phase = p; editor.select(null); drawTools(null); };
+  function stepBar() {
+    const made = !!editor.page.made;
+    const step = (id, n, label) => h('button', { class: 'step' + (phase === id ? ' on' : ''), onclick: () => setPhase(id) },
+      h('span', { class: 'step-n' }, n), label);
+    return h('div', { class: 'stepbar' }, step('plan', '1', 'Plan'), h('span', { class: 'step-arrow' }, '→'), step('make', '2', 'Make'),
+      made ? h('span', { class: 'step-done' }, '✓ Page done') : null);
+  }
+  function markMade(how) {
+    if (!editor.page.made || how === 'by-hand') { editor.page.made = how; queueSave(book); }
+    if (!editor.mode) drawTools(null);
+    drawPager();
+  }
   function drawTools(el) {
     tools.innerHTML = '';
-    if (!el) {
-      const shots = book.pages.flatMap(p => p.els.filter(e => e.type === 'photo'));
-      const done = shots.filter(e => e.blob).length;
-      tools.append(
-        tool('Add', '+', openAdd),
-        tool('Tools', '✂', openTools),
-        tool('Layout', '▦', openLayout),
-        tool(`Shots ${done}/${shots.length}`, '◉', openShots),
-        tool('Undo', '↶', () => { editor.undo(); drawPager(); }),
-        tool('Redo', '↷', () => { editor.redo(); drawPager(); }));
-    } else {
-      const editable = ['text', 'photo', 'stamp'].includes(el.type);
+    tools.className = 'tools ' + phase;
+    if (phase === 'plan') {
+      if (!el) {
+        const shots = book.pages.flatMap(p => p.els.filter(e => e.type === 'photo'));
+        const done = shots.filter(e => e.blob).length;
+        tools.append(stepBar(), h('div', { class: 'toolrow' },
+          tool('Add', '+', openAdd),
+          tool('Layout', '▦', openLayout),
+          tool(`Shots ${done}/${shots.length}`, '◉', openShots),
+          tool('Undo', '↶', () => { editor.undo(); drawPager(); }),
+          tool('Redo', '↷', () => { editor.redo(); drawPager(); }),
+          h('button', { class: 'next-step', onclick: () => setPhase('make') }, 'Make', h('span', {}, '→'))));
+      } else {
+        const editable = ['text', 'photo', 'stamp'].includes(el.type);
+        tools.append(h('div', { class: 'toolrow' }, ...[
+          el.type === 'photo' && el.blob ? tool('Crop', '⤡', () => enterMode('frame', el)) : null,
+          editable ? tool('Edit', '✎', () => editPiece(el)) : null,
+          tool('Front', '⇧', () => editor.toFront()),
+          tool('Back', '⇩', () => editor.toBack()),
+          tool('Copy', '⧉', () => editor.duplicate()),
+          tool('Delete', '✕', () => editor.deleteSelected()),
+          tool('Done', '✓', () => editor.select(null))].filter(Boolean)));
+      }
+      return;
+    }
+    // Make
+    if (el) {
       const cuttable = ['paper', 'photo'].includes(el.type);
-      tools.append(...[
-        el.type === 'photo' && el.blob ? tool('Crop', '⤡', () => enterMode('frame', el)) : null,
+      tools.append(h('div', { class: 'toolrow' }, ...[
         cuttable ? tool('Cut', '✂', () => enterMode('cut', el)) : null,
-        editable ? tool('Edit', '✎', () => editPiece(el)) : null,
         tool('Front', '⇧', () => editor.toFront()),
         tool('Back', '⇩', () => editor.toBack()),
-        tool('Copy', '⧉', () => editor.duplicate()),
         tool('Delete', '✕', () => editor.deleteSelected()),
-        tool('Done', '✓', () => editor.select(null))].filter(Boolean));
+        tool('Done', '✓', () => editor.select(null))].filter(Boolean)));
+      return;
     }
+    const made = editor.page.made;
+    tools.append(stepBar(),
+      h('div', { class: 'make-panel' },
+        h('button', { class: 'make-main', onclick: startAssemble },
+          h('span', { class: 'tool-card-glyph' }, '✋'),
+          h('span', {}, h('strong', {}, made ? 'Put it together again' : 'Put it together'),
+            h('span', { class: 'note tight' }, 'Every piece lifts off. Glue, peel, tape and stamp it back, one at a time.'))),
+        h('div', { class: 'toolrow' },
+          tool('Scissors', '✂', () => ui.hint('Tap a paper or photo on the page, then tap Cut.')),
+          tool('Tape', '◎', () => enterMode('tape')),
+          tool('Stamp', '▣', () => enterMode('stamp')),
+          tool('Paper', '▤', openPapers),
+          tool('Undo', '↶', () => { editor.undo(); drawPager(); })),
+        h('div', { class: 'make-foot' },
+          h('button', { class: 'linkish', onclick: () => setPhase('plan') }, '← Back to Plan'),
+          made ? h('span', { class: 'note tight' }, made === 'skipped' ? 'Skipped. You can still do it by hand.' : 'Put together by hand.')
+            : h('button', { class: 'linkish', onclick: () => { markMade('skipped'); ui.hint('Page done. Skipped the hands-on step.'); } }, 'Skip, the page is done'))));
   }
   // ---------- hands-on tools ----------
   const hintBox = h('div', { class: 'hint' });
@@ -386,25 +433,17 @@ async function openBook(id) {
   };
   let modeBar = null;
 
-  function openTools() {
-    const s = sheet('Tools', h('div', { class: 'stack' },
-      h('button', { class: 'tool-card big assemble', onclick: () => { s.close(); startAssemble(); } },
-        h('span', { class: 'tool-card-glyph' }, '✋'), h('div', {}, h('strong', {}, 'Put this page together'), h('div', { class: 'note tight' }, 'Every piece lifts off. Glue, peel, tape and stamp it back down, one at a time.'))),
+  // A fresh sheet of paper to cut shapes from.
+  function openPapers() {
+    const s = sheet('Paper sheets', h('div', { class: 'stack' },
       h('div', { class: 'tool-card' },
         h('div', { class: 'tool-card-head' }, h('strong', {}, 'Paper sheets'), h('span', { class: 'note tight' }, 'Pull a fresh sheet, then cut a shape out of it.')),
         // Every paper you own, the page's own background last, so a cut piece never vanishes into the page.
         h('div', { class: 'sheet-stack' }, [...new Map([...drawer('papers'), ...variants('papers')].map(v => [v.it.ref, v.it])).values()]
           .sort((x, y) => (x.ref === editor.page.paper) - (y.ref === editor.page.paper)).map(it => h('button', {
           class: 'sheet-pick', style: `background-image:url(${it.url})`, 'aria-label': it.name,
-          onclick: () => { s.close(); pullSheet(editor, it.ref); ui.hint('Tap Cut to cut a shape out of it.'); },
-        })))),
-      h('button', { class: 'tool-card big', onclick: () => { s.close(); enterMode('tape'); } },
-        h('span', { class: 'tool-card-glyph' }, '◎'), h('div', {}, h('strong', {}, 'Tape roll'), h('div', { class: 'note tight' }, 'Drag on the page to pull tape off the roll. Let go to tear it.'))),
-      h('button', { class: 'tool-card big', onclick: () => { s.close(); enterMode('stamp'); } },
-        h('span', { class: 'tool-card-glyph' }, '▣'), h('div', {}, h('strong', {}, 'Stamp'), h('div', { class: 'note tight' }, 'Ink it, hold to aim, lift to stamp.'))),
-      h('div', { class: 'tool-card' }, h('strong', {}, 'Scissors'),
-        h('div', { class: 'note tight' }, 'Tap a paper or a photo on the page, then tap Cut. Pattern scissors are in there too.')),
-    ), { tall: true });
+          onclick: () => { s.close(); pullSheet(editor, it.ref); ui.hint('Tap the sheet, then Cut, to cut a shape out of it.'); },
+        }))))));
   }
 
   enterModeRef = (k, e) => enterMode(k, e);
@@ -414,6 +453,7 @@ async function openBook(id) {
     const mode = assembly(editor, {
       panel: tools,
       onExit: () => { editor.setMode(null); drawTools(null); },
+      onDone: () => markMade('by-hand'),
       onShare: () => openShare(),
       onFinished: (hand, total) => { if (total && hand >= total / 2) earn('asm:' + editor.page.id, EARN.assemble, 'Put together by hand'); if (total >= 5 && hand >= total) tried('by-hand'); },
     });
