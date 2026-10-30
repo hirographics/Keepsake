@@ -716,6 +716,7 @@ html.tilting .holo-sheen::after { animation: none; background-position: calc(50%
   background: var(--card); color: var(--ink); box-shadow: 0 10px 30px rgba(30, 20, 15, .28), 0 0 0 1.5px rgba(58, 46, 42, .12);
   transform: translateX(-50%); transition: top .25s, bottom .25s, opacity .2s; }
 .tour-card.top { top: calc(var(--safe-t) + 12px); bottom: auto; }
+.tour-card.top, .tour-card.bottom { max-height: 40vh; overflow: auto; }
 .tour-card.bottom { bottom: calc(var(--safe-b) + 14px); top: auto; }
 .tour-card.center { top: 50%; transform: translate(-50%, -50%); }
 .tour-card.hidden { opacity: 0; pointer-events: none; }

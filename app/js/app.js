@@ -157,7 +157,7 @@ async function showHome() {
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
-      h('span', {}, 'v0.15 · show me around'))));
+      h('span', {}, 'v0.15.1 · tour fix'))));
   if (!books.length && !tourSeen() && !tourActive()) setTimeout(startTour, 500);
 }
 
@@ -241,7 +241,9 @@ async function deliverFile(file) {
 }
 
 function newBook() {
-  const input = h('textarea', { class: 'plan-input', id: 'plan', rows: 2, placeholder: "I'm going to play board games with my sister." });
+  const input = h('textarea', { class: 'plan-input', id: 'plan', rows: 2, enterkeyhint: 'go', placeholder: "I'm going to play board games with my sister." });
+  // Return makes the book (Shift+Return still adds a line), so you never have to hunt for the button.
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); input.blur(); create(); } });
   let setId = SETS[0].id, manualSet = false, length = LENGTHS[0], pages = LENGTHS[0].pages;
   const themeRow = h('div', { class: 'chips' });
   const themeNote = h('p', { class: 'note tight' });
@@ -271,9 +273,9 @@ function newBook() {
     const preview = makeBook({ plan: plan || 'x', setId, pages });
     const list = preview.pages.flatMap(p => p.els.filter(e => e.type === 'photo').map(e => e.prompt));
     shots.innerHTML = '';
-    shots.append(h('div', { class: 'label' }, `Shot list · ${photoSlotsFor(pages)} photos`),
+    shots.append(...[h('div', { class: 'label' }, `Shot list · ${photoSlotsFor(pages)} photos`),
       h('ol', {}, list.slice(0, 5).map(t => h('li', {}, t))),
-      list.length > 5 ? h('div', { class: 'note tight' }, `and ${list.length - 5} more`) : null);
+      list.length > 5 ? h('div', { class: 'note tight' }, `and ${list.length - 5} more`) : null].filter(Boolean));
   }
   input.addEventListener('input', draw);
 
@@ -287,7 +289,10 @@ function newBook() {
   draw();
   setTimeout(() => input.focus(), 250);
 
+  let making = false;
   async function create() {
+    if (making) return; // return and a tap together still make one book
+    making = true;
     const plan = input.value.trim() || setById(setId).name;
     const book = makeBook({ plan, setId, pages });
     book.palette = themePalette(setById(setId));

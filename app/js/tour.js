@@ -27,6 +27,10 @@ const practicePiece = ed => {
   return list.sort((a, b) => Math.hypot(a.x - 425, a.y - 550) - Math.hypot(b.x - 425, b.y - 550))[0] || ed.page.els[0];
 };
 
+const typed = () => { const t = document.querySelector('#plan'); return !!t && t.value.trim().length > 2; };
+const makeBtn = () => [...document.querySelectorAll('.sheet .btn.primary')].find(b => b.textContent.includes('Make my book')) || null;
+const textOf = st => typeof st.text === 'function' ? st.text() : st.text;
+
 const STEPS = [
   {
     id: 'new', where: 'home',
@@ -37,8 +41,14 @@ const STEPS = [
   },
   {
     id: 'plan', where: 'home', card: 'top',
-    text: 'Type what you are going to do, like “pizza night with friends.” Then tap Make my book at the bottom.',
-    target: () => document.querySelector('#plan'),
+    // Two parts on one step: type the plan, then the light moves to Make my book and brings it into view.
+    text: () => typed() ? 'Now tap Make my book. You can also press return.' : 'Type what you are going to do, like “pizza night with friends.”',
+    target: () => {
+      if (!typed()) return document.querySelector('#plan');
+      const b = makeBtn();
+      if (b && document.activeElement !== document.querySelector('#plan') && !b._shown) { b._shown = true; b.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      return b;
+    },
     lost: c => !c.editor && !document.querySelector('#plan'), back: 'new',
     done: c => !!c.editor,
   },
@@ -160,7 +170,7 @@ function away(st, c) {
 function show() {
   const st = STEPS[run.i], c = ctxOf();
   const n = STEPS.filter(s => !s.last).length;
-  const say = away(st, c) || st.text;
+  const say = away(st, c) || textOf(st);
   run.card.className = 'tour-card ' + (st.card || 'bottom') + (st.small ? ' small' : '') + (st.last ? ' last' : '');
   run.card.innerHTML = '';
   run.card.append(...[
@@ -174,12 +184,21 @@ function show() {
   if (st.last) onEndHook && onEndHook('reward');
 }
 
+// With the keyboard up, iPhone scrolls the visible area; the card follows it so it never hides off screen.
+function fitCard() {
+  const vv = window.visualViewport, c = run.card;
+  if (!vv) return;
+  if (c.classList.contains('top')) { c.style.top = vv.offsetTop + 12 + 'px'; c.style.bottom = 'auto'; }
+  else if (c.classList.contains('bottom')) { c.style.top = Math.max(vv.offsetTop + 12, vv.offsetTop + vv.height - c.offsetHeight - 14) + 'px'; c.style.bottom = 'auto'; }
+  else { c.style.top = ''; c.style.bottom = ''; }
+}
 function tick() {
   if (!run) return;
+  fitCard();
   const st = STEPS[run.i], c = ctxOf();
   const awayText = away(st, c);
   // Keep the words right if you wander off and come back.
-  const say = awayText || st.text;
+  const say = awayText || textOf(st);
   if (run.card._say !== say) show();
   // Full-screen camera and develop screens get the whole screen.
   const covered = !!document.querySelector('.cam, .dev');
