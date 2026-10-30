@@ -227,7 +227,15 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     const handle = h('div', { class: 'glue-hand ' + tool });
     editor.fx.append(back, handle);
     const g = c.getContext('2d'); g.scale(k, k); g.lineCap = 'round'; g.lineJoin = 'round';
-    glue = { el, tool, back, c, g, W, H, k, handle, last: null, travel: 0, then, checks: 0, hiss: null };
+    // A tiny scrap is hard to see under a finger, so a soft ring marks its spot.
+    // Glue can be spread from anywhere on the page; only what lands on the scrap counts.
+    let ring = null;
+    if (Math.min(W, H) < 90) {
+      const r = Math.max(W, H) + 46;
+      ring = h('div', { class: 'spot-ring', style: `left:${el.x}px;top:${el.y}px;width:${r}px;height:${r}px` });
+      editor.fx.append(ring);
+    }
+    glue = { el, tool, back, c, g, W, H, k, handle, last: null, travel: 0, then, checks: 0, hiss: null, shape: o, ring };
     stage = 'glue';
   }
   function glueAt(p, down) {
@@ -264,20 +272,29 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
     glueCheck();
   }
   // Enough glue: about half the back with a stick, or a few strips of tape.
+  // Only glue inside the piece's own shape counts, so a cut circle or a tiny scrap works the same.
   function glueCheck() {
     const G = glue; if (!G) return;
-    const sm = document.createElement('canvas'), n = 40;
-    sm.width = n; sm.height = Math.max(6, Math.round(n * G.H / G.W));
-    const t = sm.getContext('2d'); t.drawImage(G.c, 0, 0, sm.width, sm.height);
-    const d = t.getImageData(0, 0, sm.width, sm.height).data;
-    let on = 0; for (let j = 3; j < d.length; j += 4) if (d[j] > 40) on++;
-    const share = on / (sm.width * sm.height);
-    if (share >= (G.tool === 'stick' ? 0.5 : 0.22)) glueDone();
+    const n = 48, sw = n, sh = Math.max(6, Math.round(n * G.H / G.W));
+    const mk = () => { const c = document.createElement('canvas'); c.width = sw; c.height = sh; return c.getContext('2d', { willReadFrequently: true }); };
+    const t = mk(); t.drawImage(G.c, 0, 0, sw, sh);
+    if (!G.mask) {
+      const m = mk(); m.fillStyle = '#000'; m.beginPath();
+      G.shape.forEach((q, j) => (j ? m.lineTo : m.moveTo).call(m, q.x / G.W * sw, q.y / G.H * sh)); m.closePath(); m.fill();
+      G.mask = m.getImageData(0, 0, sw, sh).data;
+    }
+    const d = t.getImageData(0, 0, sw, sh).data;
+    let inside = 0, on = 0;
+    for (let j = 3; j < d.length; j += 4) if (G.mask[j] > 128) { inside++; if (d[j] > 40) on++; }
+    const share = on / Math.max(1, inside);
+    const small = Math.min(G.W, G.H) < 90; // a small scrap needs less rubbing
+    const need = G.tool === 'stick' ? (small ? 0.35 : 0.5) : (small ? 0.15 : 0.22);
+    if (share >= need) glueDone();
   }
   function glueDone() {
     const G = glue; glue = null; stage = null;
     if (G.hiss) G.hiss.stop();
-    G.handle.remove();
+    G.handle.remove(); G.ring && G.ring.remove();
     G.back.classList.add('flip-over');
     sound.swoosh();
     setTimeout(() => { G.back.remove(); G.then(); }, 380);
@@ -317,15 +334,31 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
   // A few air bubbles under a freshly laid paper or photo; rub over them to push them out.
   function startSmooth(el) {
     stage = 'smooth';
-    const n = 3 + Math.floor(Math.random() * 3);
+    // Bubbles fit the piece: one small one on a tiny scrap, up to five on a big sheet,
+    // always inside its cut shape.
+    const side = Math.min(el.w, el.h), shape = outline(el);
+    const n = side < 70 ? 1 : side < 160 ? 2 : 3 + Math.floor(Math.random() * 3);
+    const big = Math.max(26, Math.min(56, side * 0.32));
     for (let j = 0; j < n; j++) {
-      const lx = (Math.random() - 0.5) * el.w * 0.7, ly = (Math.random() - 0.5) * el.h * 0.7;
-      const at = localToPage(el, lx + el.w / 2, ly + el.h / 2);
-      const size = 26 + Math.random() * 30;
+      let at = { x: el.x, y: el.y };
+      for (let tries = 0; tries < 24; tries++) {
+        const lx = (Math.random() - 0.5) * el.w * 0.7, ly = (Math.random() - 0.5) * el.h * 0.7;
+        const q = localToPage(el, lx + el.w / 2, ly + el.h / 2);
+        if (inPoly(q, shape)) { at = q; break; }
+      }
+      const size = big * (n === 1 ? 1 : 0.6 + Math.random() * 0.4);
       const b = h('div', { class: 'bubble', style: `left:${at.x}px;top:${at.y}px;width:${size}px;height:${size}px` });
       editor.fx.append(b);
-      bubbles.push({ b, x: at.x, y: at.y, r: size });
+      bubbles.push({ b, x: at.x, y: at.y, r: Math.max(size, 22) });
     }
+  }
+  function inPoly(p, pts) {
+    let ins = false;
+    for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) {
+      const A = pts[a], B = pts[b];
+      if ((A.y > p.y) !== (B.y > p.y) && p.x < (B.x - A.x) * (p.y - A.y) / (B.y - A.y) + A.x) ins = !ins;
+    }
+    return ins;
   }
   function smoothAt(p) {
     for (const bb of bubbles) {
@@ -342,7 +375,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
   }
   function clearPiece() {
     if (floater) { floater.remove(); floater = null; }
-    if (glue) { if (glue.hiss) glue.hiss.stop(); glue.back.remove(); glue.handle.remove(); glue = null; }
+    if (glue) { if (glue.hiss) glue.hiss.stop(); glue.back.remove(); glue.handle.remove(); glue.ring && glue.ring.remove(); glue = null; }
     for (const bb of bubbles) bb.b.remove();
     bubbles = []; stage = null;
   }

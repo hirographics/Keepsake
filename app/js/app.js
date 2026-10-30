@@ -148,7 +148,7 @@ async function showHome() {
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
-      h('span', {}, 'v0.14 · glue and ink'))));
+      h('span', {}, 'v0.14.1 · tiny scraps'))));
 }
 
 // ---------- backup ----------
