@@ -15,6 +15,8 @@ import { Editor, FONTS, fontCss } from './editor.js';
 import { lastLook, originalLook, originalUrl } from './look.js';
 import { canLiveCamera, openCamera, openDevelop } from './camera.js';
 import { cutMode, tapeMode, stampMode, pullSheet, reframeMode, EDGES, SHAPES, edgeInkAt } from './tools.js';
+import { initTour, startTour, tourActive, tourSeen } from './tour.js';
+import { cue } from './tips.js';
 
 const app = $('#app');
 const mine = kind => itemsOf(kind).filter(it => owns(it.ref));
@@ -48,6 +50,8 @@ const svgIcon = d => { const sp = h('span', { class: 'svg-ic' }); sp.innerHTML =
 let editor = null;
 let saveTimer = null;
 let enterModeRef = null; // the open book's tool starter, so sheets outside it can start a tool
+// What the tour watches: the open step, and whether a page is being put together.
+let phaseNow = 'plan', asmOn = false, asmFinished = false;
 
 // ---------- photos ----------
 function pickFile(capture) {
@@ -62,10 +66,14 @@ function pickFile(capture) {
 
 // Gets a photo from the camera or the library, saves the original, then opens the develop screen.
 // Resolves { blob, look } or null.
-async function getPhoto({ capture, prompt, aspect }) {
+async function getPhoto({ capture, prompt, aspect, sample }) {
   let file = null, when = Date.now(), flash = true;
   noteFor('camera');
-  if (capture && canLiveCamera()) {
+  if (sample) {
+    // The tour's stand-in photo, for when you would rather not use the camera yet.
+    file = await fetch('img/sample-photo.jpg').then(r => r.blob()).catch(() => null);
+    flash = false;
+  } else if (capture && canLiveCamera()) {
     const shot = await openCamera({ prompt, aspect });
     if (!shot) return null;
     if (shot.error) file = await pickFile(true); // camera would not start: use the iPhone camera instead
@@ -77,8 +85,8 @@ async function getPhoto({ capture, prompt, aspect }) {
   if (!file) return null;
   const blob = await importPhoto(file);
   const look = { ...lastLook(when), when };
-  if (capture) look.flash = flash;
-  const chosen = await openDevelop({ src: await originalUrl(blob), look, fresh: !!capture });
+  if (capture || sample) look.flash = flash;
+  const chosen = await openDevelop({ src: await originalUrl(blob), look, fresh: !!(capture || sample) });
   if (!chosen) { await db.deleteBlob(blob); return null; }
   return { blob, look: chosen };
 }
@@ -141,6 +149,7 @@ async function showHome() {
       h('button', { class: 'btn big circles-btn', onclick: () => showCircles({ app, back: showHome, toast: toastScraps, earn }) }, 'Circles')),
     backupNudge(books),
     list,
+    h('div', { class: 'tour-row' }, h('button', { class: 'linkish', onclick: startTour }, 'Show me around')),
     h('div', { class: 'backup-row' },
       h('button', { class: 'linkish', onclick: openBackup }, 'Back up or restore books'),
       h('span', { class: 'note tight' }, lastBackup() ? `Last backup ${new Date(lastBackup()).toLocaleDateString()}` : 'Not backed up yet')),
@@ -148,7 +157,8 @@ async function showHome() {
       window.KEEPSAKE_ARTIFACT ? h('span', { class: 'test-links' },
         h('button', { class: 'linkish', onclick: async () => { await resetGift(); showHome(); } }, 'Testing: new parcel'),
         h('button', { class: 'linkish', onclick: async () => { testHolo = true; await resetGift(); showHome(); } }, 'holo parcel')) : h('a', { href: 'templates/' }, 'Art templates for Procreate'),
-      h('span', {}, 'v0.14.1 · tiny scraps'))));
+      h('span', {}, 'v0.15 · show me around'))));
+  if (!books.length && !tourSeen() && !tourActive()) setTimeout(startTour, 500);
 }
 
 // ---------- backup ----------
@@ -349,7 +359,8 @@ async function openBook(id) {
   // Make: the hands-on part, putting it together and cutting, taping and stamping by hand.
   // Make can be skipped; a page is done either way.
   let phase = 'plan';
-  const setPhase = p => { phase = p; editor.select(null); drawTools(null); };
+  phaseNow = 'plan'; asmOn = false; asmFinished = false;
+  const setPhase = p => { phase = p; phaseNow = p; editor.select(null); drawTools(null); };
   function stepBar() {
     const made = !!editor.page.made;
     const step = (id, n, label) => h('button', { class: 'step' + (phase === id ? ' on' : ''), onclick: () => setPhase(id) },
@@ -450,12 +461,13 @@ async function openBook(id) {
 
   function startAssemble() {
     editor.select(null);
+    asmOn = true; asmFinished = false;
     const mode = assembly(editor, {
       panel: tools,
-      onExit: () => { editor.setMode(null); drawTools(null); },
+      onExit: () => { asmOn = false; editor.setMode(null); drawTools(null); },
       onDone: () => markMade('by-hand'),
       onShare: () => openShare(),
-      onFinished: (hand, total) => { if (total && hand >= total / 2) earn('asm:' + editor.page.id, EARN.assemble, 'Put together by hand'); if (total >= 5 && hand >= total) tried('by-hand'); },
+      onFinished: (hand, total) => { asmFinished = true; if (total && hand >= total / 2) earn('asm:' + editor.page.id, EARN.assemble, 'Put together by hand'); if (total >= 5 && hand >= total) tried('by-hand'); },
     });
     editor.setMode(mode);
   }
@@ -518,6 +530,9 @@ async function openBook(id) {
       tools.append(h('div', { class: 'modewrap' }, bar, h('button', { class: 'mode-done', onclick: done }, '✓', h('span', {}, 'Done'))));
     };
     modeBar();
+    if (kind === 'cut') cue('cut', 600, el && document.querySelector(`.page .el[data-id="${el.id}"]`));
+    if (kind === 'tape') cue('tape-mode', 600);
+    if (kind === 'stamp') cue('stamp-mode', 600);
     if (kind === 'frame') { ui.hint('Drag to move the photo. Pinch or slide to zoom.'); return; }
     ui.hint(kind === 'cut' ? 'Draw around the part you want to keep, or tap a shape.' : kind === 'tape' ? 'Drag on the page to pull tape off the roll.' : 'Dab the stamp on a pad, hold to aim, then lift to stamp.');
   }
@@ -823,16 +838,17 @@ function editPhoto(el, done) {
     el.prompt ? h('p', { class: 'prompt-big' }, el.prompt) : null,
     h('button', { class: 'btn primary', onclick: () => fill(true) }, 'Take a photo'),
     h('button', { class: 'btn', onclick: () => fill(false) }, 'Choose from my library'),
+    tourActive() ? h('button', { class: 'btn', onclick: () => fill(false, true) }, 'Use a sample photo') : null,
     el.blob ? h('button', { class: 'btn', onclick: () => { s.close(); enterModeRef && enterModeRef('frame', el); } }, 'Move the framing') : null,
     el.blob ? h('button', { class: 'btn', onclick: changeLook }, 'Change the look') : null,
     el.blob ? h('button', { class: 'btn danger-quiet', onclick: () => { el.blob = null; el.look = null; editor.refresh(el); s.close(); } }, 'Take the photo out') : null,
     label('Frame'), frames,
     label('Photo prompt'), prompt,
     canLiveCamera() ? null : h('p', { class: 'note' }, 'In this test copy, "Take a photo" opens the iPhone camera and the look is added after. The live viewfinder comes with the installable version.')), { onClose: done });
-  async function fill(capture) {
+  async function fill(capture, sample = false) {
     const win = document.querySelector(`.el[data-id="${el.id}"] .b > :first-child`);
     const aspect = win && win.offsetHeight ? win.offsetWidth / win.offsetHeight : 3 / 4;
-    const got = await getPhoto({ capture, prompt: el.prompt, aspect });
+    const got = await getPhoto({ capture, prompt: el.prompt, aspect, sample });
     if (!got) return;
     el.crop = null; // a new photo starts centred, exactly as framed in the viewfinder
     el.blob = got.blob;
@@ -1092,6 +1108,8 @@ function parcelCard() {
   initTilt();
   onEarned((amount, reason) => toastScraps(amount, reason));
   initDiscoveries();
+  initTour(() => ({ editor, phase: phaseNow, assembling: asmOn, finished: asmFinished }),
+    how => { if (how === 'reward') earn('tour', 25, 'Finished the tour'); });
   await Promise.all(FONTS.map(f => document.fonts.load(`40px ${f.css.split(',')[0]}`).catch(() => {})));
   showHome();
   if ('serviceWorker' in navigator) {

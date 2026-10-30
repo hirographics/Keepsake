@@ -9,6 +9,7 @@ import { wrap } from './render.js';
 import { makePeel } from './peel.js';
 import { asset } from './packs.js';
 import { fontCss } from './editor.js';
+import { cue } from './tips.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const ORDER = { paper: 0, photo: 1, tape: 2, sticker: 3, text: 4, stamp: 5 };
@@ -137,7 +138,9 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
         sound.press();
         startSmooth(el);
         say.textContent = 'Rub it down to smooth out the bubbles.';
+        cue('smooth', 300);
       });
+      cue('glue');
       ready = true;
     } else if (el.type === 'sticker') {
       // Face down on its shaped backing. Pull the backing off from any corner; it folds back as you
@@ -146,6 +149,7 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
       tray.append(holder);
       say.textContent = 'Grab a corner and peel the backing off.';
       const a = el.ref && asset(el.ref);
+      cue('peel', 500);
       makePeel(holder, a ? a.url : '', { onPeeled: () => {
         holder.innerHTML = '';
         const piece = trayPiece(el, tray, false);
@@ -156,12 +160,14 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
           stage = 'press';
           ready = true;
           say.textContent = 'Press it down. Anywhere on the page works.';
+          cue('press', 250);
         }), 200);
       } });
     } else if (el.type === 'tape') {
       trayRoll(el, tray);
       say.textContent = 'Start at one end of the outline and pull the tape along it.';
       ready = true;
+      cue('tape');
     } else if (el.type === 'stamp') {
       trayPiece(el, tray, false);
       say.textContent = 'Dab the stamp on the ink pad. Twice makes a full print.';
@@ -177,14 +183,17 @@ export function assembly(editor, { panel, onExit, onShare, onFinished, onDone })
         st.paint(a && a.url, el.ink, inkLevel);
         ready = true;
         st.hover({ x: el.x, y: el.y });
+        cue('stamp', 300);
         say.textContent = inkLevel < 1 ? 'One more dab for a full print, or hold the page to bear down and let go to stamp.' : 'Inked. Hold the page to bear down, then let go to stamp.';
       } }, level);
       act.append(pad);
+      cue('dab');
     } else if (el.type === 'text') {
       trayPiece(el, tray, false);
       say.textContent = 'Scratch inside the outline. The words come up wherever you scratch.';
       startScratch(el);
       ready = true;
+      cue('scratch');
     } else {
       place(el, true);
     }
