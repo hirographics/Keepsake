@@ -47,6 +47,8 @@ export const DISCOVERIES = [
   { id: 'by-hand', tool: 'page', name: 'All by hand', hint: 'Every piece, by hand.', did: 'You put a whole page together by hand.' },
   { id: 'long-story', tool: 'page', name: 'Long story', hint: 'Some days need more pages.', did: 'You filled four pages with photos.' },
   { id: 'shared', tool: 'page', name: 'Show and tell', hint: 'Pages are made to be seen.', did: 'You shared a page.' },
+  { id: 'circle-page', tool: 'page', name: 'In good company', hint: 'Some pages are better with friends.', did: 'You sent a page to your circle.' },
+  { id: 'ribbon', tool: 'page', name: 'Pinned a ribbon', hint: "Someone else's page deserves something.", did: "You gave a ribbon to a friend's page." },
 ];
 const byId = Object.fromEntries(DISCOVERIES.map(d => [d.id, d]));
 export const found = id => claimed('disc:' + id);

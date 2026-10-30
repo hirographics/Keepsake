@@ -8,6 +8,7 @@ import { ownsHolo, holoCount, HOLO_KINDS, resetGift, loadRewards, scraps, catalo
 import { sound } from './audio.js';
 import { initTilt, startTilt, lightOn } from './tilt.js';
 import { tried } from './tried.js';
+import { showCircles } from './circles-ui.js';
 import { makeBackup, readBackup, restoreBackup, markBackedUp, lastBackup } from './backup.js';
 import { DISCOVERIES, found, foundCount, initDiscoveries, scanBook, DISCOVERY_PAY, hinted, giveHint, toolNote } from './discoveries.js';
 import { Editor, FONTS, fontCss } from './editor.js';
@@ -135,7 +136,9 @@ async function showHome() {
       scrapsChip()),
     week,
     giftReady() ? parcelCard() : null,
-    h('button', { class: 'btn big', onclick: newBook }, '+ New book'),
+    h('div', { class: 'home-actions' },
+      h('button', { class: 'btn big', onclick: newBook }, '+ New book'),
+      h('button', { class: 'btn big circles-btn', onclick: () => showCircles({ app, back: showHome, toast: toastScraps, earn }) }, 'Circles')),
     backupNudge(books),
     list,
     h('div', { class: 'backup-row' },
