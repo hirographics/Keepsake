@@ -205,6 +205,13 @@ for key, (name, content) in PAPERS.items():
     write(f"papers/{key}.svg", content)
     manifest["papers"].append({"id": key, "file": f"papers/{key}.svg", "name": name, "tile": 300})
 
-with open(os.path.join(OUT, "pack.json"), "w") as f:
+# Keep hand-drawn pieces (Richard's art) that are listed in pack.json but not drawn by this script.
+_old = os.path.join(OUT, "pack.json")
+if os.path.exists(_old):
+    prev = json.load(open(_old))
+    for kind in ("stickers", "stamps", "tapes", "papers"):
+        made = {x["id"] for x in manifest[kind]}
+        manifest[kind] = [x for x in prev.get(kind, []) if x["id"] not in made and "artist" in x] + manifest[kind]
+with open(_old, "w") as f:
     json.dump(manifest, f, indent=1)
 print("stickers", len(STICKERS), "stamps", len(STAMPS), "tapes", len(TAPES), "papers", len(PAPERS))
